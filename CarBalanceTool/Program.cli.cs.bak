@@ -1,0 +1,691 @@
+using System.ComponentModel;
+using CarBalanceTool.Analysis;
+using CarBalanceTool.Models;
+using CarBalanceTool.Parsing;
+using Spectre.Console;
+using Spectre.Console.Cli;
+
+// Run the CLI application
+var app = new CommandApp();
+app.Configure(config =>
+{
+    config.SetApplicationName("CarBalanceTool");
+    config.SetApplicationVersion("1.0.0");
+
+    config.AddCommand<AnalyzeCommand>("analyze")
+        .WithDescription("Analyze a single car's performance metrics")
+        .WithExample("analyze", "path/to/car");
+
+    config.AddCommand<CompareCommand>("compare")
+        .WithDescription("Compare two cars and get balance suggestions")
+        .WithExample("compare", "path/to/car1", "path/to/car2");
+
+    config.AddCommand<BalanceCommand>("balance")
+        .WithDescription("Analyze all cars in a folder and generate balance report")
+        .WithExample("balance", "path/to/cars/folder");
+});
+
+return app.Run(args);
+
+// ============================================================================
+// ANALYZE COMMAND
+// ============================================================================
+
+public class AnalyzeSettings : CommandSettings
+{
+    [Description("Path to the car folder (containing 'data' folder)")]
+    [CommandArgument(0, "<car-path>")]
+    public required string CarPath { get; init; }
+
+    [Description("Show detailed power curve data")]
+    [CommandOption("-p|--power-curve")]
+    public bool ShowPowerCurve { get; init; }
+}
+
+public class AnalyzeCommand : Command<AnalyzeSettings>
+{
+    public override int Execute(CommandContext context, AnalyzeSettings settings)
+    {
+        var path = Path.GetFullPath(settings.CarPath);
+
+        if (!Directory.Exists(path))
+        {
+            AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {path}");
+            return 1;
+        }
+
+        var car = CarDataLoader.Load(path);
+        if (car == null)
+        {
+            AnsiConsole.MarkupLine($"[red]Error:[/] Could not load car data from: {path}");
+            AnsiConsole.MarkupLine("[dim]Make sure the folder contains a 'data' subfolder with car.ini, engine.ini, etc.[/]");
+            return 1;
+        }
+
+        // Calculate metrics
+        car.Metrics = PerformanceCalculator.Calculate(car);
+
+        // Display results
+        DisplayCarAnalysis(car, settings.ShowPowerCurve);
+
+        return 0;
+    }
+
+    private static void DisplayCarAnalysis(CarData car, bool showPowerCurve)
+    {
+        var m = car.Metrics!;
+
+        AnsiConsole.Write(new Rule($"[bold yellow]{car.Name}[/]").RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+
+        // Basic info table
+        var basicTable = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Property")
+            .AddColumn("Value");
+
+        basicTable.AddRow("Name", car.Name);
+        basicTable.AddRow("Mass", $"{car.Basic.TotalMass:F0} kg");
+        basicTable.AddRow("Drivetrain", car.Drivetrain.Type.ToString());
+        basicTable.AddRow("Gears", car.Drivetrain.GearCount.ToString());
+
+        AnsiConsole.Write(new Panel(basicTable).Header("[bold]Basic Info[/]"));
+
+        // Engine table
+        var engineTable = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Property")
+            .AddColumn("Value");
+
+        engineTable.AddRow("Peak Power", $"{car.Engine.PeakPowerHp:F0} HP @ {car.Engine.PeakPowerRpm} RPM");
+        engineTable.AddRow("Peak Torque", $"{car.Engine.PeakTorque:F0} Nm @ {car.Engine.PeakTorqueRpm} RPM");
+        engineTable.AddRow("Rev Limiter", $"{car.Engine.Limiter} RPM");
+        engineTable.AddRow("Idle RPM", $"{car.Engine.Minimum} RPM");
+
+        if (car.Engine.Turbos.Count > 0)
+        {
+            var turbo = car.Engine.Turbos[0];
+            engineTable.AddRow("Turbo", $"[green]Yes[/] - Max Boost: {turbo.MaxBoost:F2} bar");
+            engineTable.AddRow("Turbo Reference RPM", turbo.ReferenceRpm.ToString());
+            if (car.Engine.Turbos.Count > 1)
+                engineTable.AddRow("Additional Turbos", (car.Engine.Turbos.Count - 1).ToString());
+        }
+        else
+        {
+            engineTable.AddRow("Turbo", "[dim]No[/]");
+        }
+
+        AnsiConsole.Write(new Panel(engineTable).Header("[bold]Engine[/]"));
+
+        // Performance metrics table
+        var perfTable = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Metric")
+            .AddColumn("Value");
+
+        perfTable.AddRow("Wheel Power", $"{m.WheelPowerHp:F0} HP ({m.DrivetrainEfficiency * 100:F0}% efficiency)");
+        perfTable.AddRow("Power-to-Weight", $"{m.PowerToWeight:F3} HP/kg");
+        perfTable.AddRow("Theoretical Top Speed", $"{m.TheoreticalTopSpeed:F0} km/h");
+        perfTable.AddRow("Est. 0-100 km/h", $"{m.Est0To100:F2} seconds");
+        perfTable.AddRow("Est. 0-200 km/h", $"{m.Est0To200:F2} seconds");
+        perfTable.AddRow("Braking (per kg)", $"{m.BrakingPerKg:F2} Nm/kg");
+        perfTable.AddRow("Average Tyre Grip", $"{m.AverageTyreGrip:F2}");
+        perfTable.AddRow("[bold]Performance Score[/]", $"[bold cyan]{m.PerformanceScore:F1}[/]");
+
+        AnsiConsole.Write(new Panel(perfTable).Header("[bold]Performance Metrics[/]"));
+
+        // Aero table
+        if (car.Aero.Wings.Count > 0)
+        {
+            var aeroTable = new Table()
+                .Border(TableBorder.Rounded)
+                .AddColumn("Wing")
+                .AddColumn("CL Gain")
+                .AddColumn("CD Gain");
+
+            foreach (var wing in car.Aero.Wings)
+            {
+                aeroTable.AddRow(wing.Name, $"{wing.ClGain:F3}", $"{wing.CdGain:F3}");
+            }
+
+            aeroTable.AddRow("[bold]Total[/]", $"[bold]{car.Aero.TotalClGain:F3}[/]", $"[bold]{car.Aero.TotalDragGain:F3}[/]");
+
+            AnsiConsole.Write(new Panel(aeroTable).Header("[bold]Aerodynamics[/]"));
+        }
+
+        // Drivetrain details
+        var driveTable = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Property")
+            .AddColumn("Value");
+
+        driveTable.AddRow("Final Drive", $"{car.Drivetrain.FinalDrive:F3}");
+        driveTable.AddRow("Gear Ratios", string.Join(", ", car.Drivetrain.GearRatios.Select(g => $"{g:F2}")));
+        driveTable.AddRow("Shift Up Time", $"{car.Drivetrain.ShiftUpTime} ms");
+        driveTable.AddRow("Shift Down Time", $"{car.Drivetrain.ShiftDownTime} ms");
+
+        if (car.Drivetrain.Type == DrivetrainType.AWD && car.Drivetrain.Awd != null)
+        {
+            driveTable.AddRow("Front Power Share", $"{car.Drivetrain.Awd.FrontShare * 100:F0}%");
+        }
+
+        AnsiConsole.Write(new Panel(driveTable).Header("[bold]Drivetrain[/]"));
+
+        // Power curve
+        if (showPowerCurve && car.Engine.PowerCurve.Count > 0)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule("[bold]Power Curve[/]").RuleStyle("grey"));
+
+            var curveTable = new Table()
+                .Border(TableBorder.Simple)
+                .AddColumn("RPM")
+                .AddColumn("Torque (Nm)")
+                .AddColumn("Power (HP)");
+
+            foreach (var point in car.Engine.PowerCurve)
+            {
+                var power = point.Torque * point.Rpm / 5252 * 1.34102f; // Convert to HP
+                curveTable.AddRow(point.Rpm.ToString(), $"{point.Torque:F1}", $"{power:F0}");
+            }
+
+            AnsiConsole.Write(curveTable);
+        }
+    }
+}
+
+// ============================================================================
+// COMPARE COMMAND
+// ============================================================================
+
+public class CompareSettings : CommandSettings
+{
+    [Description("Path to the first car folder")]
+    [CommandArgument(0, "<car1-path>")]
+    public required string Car1Path { get; init; }
+
+    [Description("Path to the second car folder")]
+    [CommandArgument(1, "<car2-path>")]
+    public required string Car2Path { get; init; }
+
+    [Description("Show all suggestions including low priority")]
+    [CommandOption("-a|--all")]
+    public bool ShowAll { get; init; }
+}
+
+public class CompareCommand : Command<CompareSettings>
+{
+    public override int Execute(CommandContext context, CompareSettings settings)
+    {
+        var path1 = Path.GetFullPath(settings.Car1Path);
+        var path2 = Path.GetFullPath(settings.Car2Path);
+
+        // Load cars
+        var car1 = LoadCar(path1);
+        var car2 = LoadCar(path2);
+
+        if (car1 == null || car2 == null)
+            return 1;
+
+        // Compare
+        var result = BalanceAnalyzer.Compare(car1, car2);
+
+        // Display
+        DisplayComparison(result, settings.ShowAll);
+
+        return 0;
+    }
+
+    private static CarData? LoadCar(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {path}");
+            return null;
+        }
+
+        var car = CarDataLoader.Load(path);
+        if (car == null)
+        {
+            AnsiConsole.MarkupLine($"[red]Error:[/] Could not load car data from: {path}");
+            return null;
+        }
+
+        return car;
+    }
+
+    private static void DisplayComparison(BalanceAnalyzer.ComparisonResult result, bool showAll)
+    {
+        var car1 = result.Car1;
+        var car2 = result.Car2;
+
+        AnsiConsole.Write(new Rule($"[bold yellow]{car1.Name}[/] vs [bold yellow]{car2.Name}[/]").RuleStyle("grey"));
+        AnsiConsole.WriteLine();
+
+        // Balance rating
+        var ratingColor = result.BalanceRating switch
+        {
+            >= 90 => "green",
+            >= 70 => "yellow",
+            >= 50 => "orange3",
+            _ => "red"
+        };
+
+        AnsiConsole.Write(new Panel(
+            new Markup($"[bold {ratingColor}]{result.BalanceRating:F0}[/] / 100"))
+            .Header("[bold]Balance Rating[/]")
+            .Border(BoxBorder.Double));
+        AnsiConsole.WriteLine();
+
+        // Comparison table
+        var compTable = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Metric")
+            .AddColumn(new TableColumn(car1.Name).Centered())
+            .AddColumn(new TableColumn(car2.Name).Centered())
+            .AddColumn(new TableColumn("Difference").Centered());
+
+        AddComparisonRow(compTable, "Mass", $"{car1.Basic.TotalMass:F0} kg", $"{car2.Basic.TotalMass:F0} kg",
+            result.MassDifference, result.MassDifferencePercent, "kg", true);
+
+        AddComparisonRow(compTable, "Peak Power", $"{car1.Engine.PeakPowerHp:F0} HP", $"{car2.Engine.PeakPowerHp:F0} HP",
+            result.PowerDifference, result.PowerDifferencePercent, "HP", false);
+
+        AddComparisonRow(compTable, "Power-to-Weight", $"{car1.Metrics!.PowerToWeight:F3} HP/kg", $"{car2.Metrics!.PowerToWeight:F3} HP/kg",
+            result.PowerToWeightDifference, result.PowerToWeightDifferencePercent, "HP/kg", false);
+
+        AddComparisonRow(compTable, "Top Speed", $"{car1.Metrics.TheoreticalTopSpeed:F0} km/h", $"{car2.Metrics.TheoreticalTopSpeed:F0} km/h",
+            result.TopSpeedDifference, result.TopSpeedDifferencePercent, "km/h", false);
+
+        AddComparisonRow(compTable, "0-100 km/h", $"{car1.Metrics.Est0To100:F2}s", $"{car2.Metrics.Est0To100:F2}s",
+            result.AccelTimeDifference, result.AccelTimeDifferencePercent, "s", true);
+
+        AddComparisonRow(compTable, "Perf. Score", $"{car1.Metrics.PerformanceScore:F1}", $"{car2.Metrics.PerformanceScore:F1}",
+            result.PerformanceScoreDifference, result.PerformanceScoreDifferencePercent, "", false);
+
+        compTable.AddRow("Drivetrain", car1.Drivetrain.Type.ToString(), car2.Drivetrain.Type.ToString(), "-");
+
+        if (car1.Engine.Turbos.Count > 0 || car2.Engine.Turbos.Count > 0)
+        {
+            var boost1 = car1.Engine.Turbos.Count > 0 ? $"{car1.Engine.MaxBoost:F2} bar" : "N/A";
+            var boost2 = car2.Engine.Turbos.Count > 0 ? $"{car2.Engine.MaxBoost:F2} bar" : "N/A";
+            compTable.AddRow("Max Boost", boost1, boost2, "-");
+        }
+
+        compTable.AddRow("Total Drag", $"{car1.Aero.TotalDragGain:F2}", $"{car2.Aero.TotalDragGain:F2}",
+            FormatDiff(result.DragDifference, 0, "", false));
+
+        AnsiConsole.Write(compTable);
+        AnsiConsole.WriteLine();
+
+        // Suggestions
+        var suggestions = result.Suggestions;
+        if (!showAll)
+        {
+            suggestions = suggestions
+                .Where(s => s.Priority >= BalanceAnalyzer.SuggestionPriority.Medium)
+                .ToList();
+        }
+
+        if (suggestions.Count > 0)
+        {
+            AnsiConsole.Write(new Rule("[bold]Balance Suggestions[/]").RuleStyle("grey"));
+            AnsiConsole.WriteLine();
+
+            foreach (var suggestion in suggestions)
+            {
+                var priorityColor = suggestion.Priority switch
+                {
+                    BalanceAnalyzer.SuggestionPriority.Critical => "red",
+                    BalanceAnalyzer.SuggestionPriority.High => "orange3",
+                    BalanceAnalyzer.SuggestionPriority.Medium => "yellow",
+                    _ => "dim"
+                };
+
+                var panel = new Panel(new Markup(
+                    $"[bold]{suggestion.Parameter}[/]\n" +
+                    $"File: [cyan]{suggestion.File}[/] [[{suggestion.Section}]] {suggestion.Key}\n" +
+                    $"Current: [red]{suggestion.CurrentValue:F2}[/] → Suggested: [green]{suggestion.SuggestedValue:F2}[/]\n" +
+                    $"[dim]{suggestion.Rationale}[/]"))
+                    .Header($"[{priorityColor}]{suggestion.Priority}[/] - {suggestion.TargetCar}")
+                    .Border(BoxBorder.Rounded);
+
+                AnsiConsole.Write(panel);
+            }
+        }
+        else if (result.BalanceRating >= 95)
+        {
+            AnsiConsole.MarkupLine("[green]✓ Cars are well balanced! No significant adjustments needed.[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("[dim]No high-priority suggestions. Use --all to see low-priority options.[/]");
+        }
+    }
+
+    private static void AddComparisonRow(Table table, string metric, string val1, string val2,
+        float diff, float diffPercent, string unit, bool lowerIsBetter)
+    {
+        table.AddRow(metric, val1, val2, FormatDiff(diff, diffPercent, unit, lowerIsBetter));
+    }
+
+    private static string FormatDiff(float diff, float diffPercent, string unit, bool lowerIsBetter)
+    {
+        if (MathF.Abs(diff) < 0.001f)
+            return "[dim]≈[/]";
+
+        var sign = diff > 0 ? "+" : "";
+        var color = (diff > 0) == lowerIsBetter ? "red" : "green";
+
+        if (diffPercent != 0)
+            return $"[{color}]{sign}{diff:F1}{unit} ({sign}{diffPercent:F1}%)[/]";
+
+        return $"[{color}]{sign}{diff:F2}[/]";
+    }
+}
+
+// ============================================================================
+// BALANCE COMMAND
+// ============================================================================
+
+public class BalanceSettings : CommandSettings
+{
+    [Description("Path to folder containing car folders")]
+    [CommandArgument(0, "<cars-folder>")]
+    public required string CarsFolder { get; init; }
+
+    [Description("Name of reference car (uses median if not specified)")]
+    [CommandOption("-r|--reference")]
+    public string? ReferenceCar { get; init; }
+
+    [Description("Output format: table or detailed")]
+    [CommandOption("-o|--output")]
+    [DefaultValue("table")]
+    public string OutputFormat { get; init; } = "table";
+
+    [Description("Export suggestions to file")]
+    [CommandOption("-e|--export")]
+    public string? ExportPath { get; init; }
+}
+
+public class BalanceCommand : Command<BalanceSettings>
+{
+    public override int Execute(CommandContext context, BalanceSettings settings)
+    {
+        var basePath = Path.GetFullPath(settings.CarsFolder);
+
+        if (!Directory.Exists(basePath))
+        {
+            AnsiConsole.MarkupLine($"[red]Error:[/] Directory not found: {basePath}");
+            return 1;
+        }
+
+        // Load all cars
+        var cars = new List<CarData>();
+
+        AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .Start("Loading cars...", ctx =>
+            {
+                foreach (var dir in Directory.GetDirectories(basePath))
+                {
+                    ctx.Status($"Loading {Path.GetFileName(dir)}...");
+
+                    var car = CarDataLoader.Load(dir);
+                    if (car != null)
+                    {
+                        car.Metrics = PerformanceCalculator.Calculate(car);
+                        cars.Add(car);
+                    }
+                }
+            });
+
+        if (cars.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] No valid cars found in the folder.");
+            return 1;
+        }
+
+        if (cars.Count == 1)
+        {
+            AnsiConsole.MarkupLine("[yellow]Warning:[/] Only one car found. Need at least 2 cars to compare.");
+            return 0;
+        }
+
+        AnsiConsole.MarkupLine($"[green]Loaded {cars.Count} cars[/]");
+        AnsiConsole.WriteLine();
+
+        // Find or select reference car
+        CarData? reference = null;
+        if (!string.IsNullOrEmpty(settings.ReferenceCar))
+        {
+            reference = cars.FirstOrDefault(c =>
+                c.Name.Contains(settings.ReferenceCar, StringComparison.OrdinalIgnoreCase));
+
+            if (reference == null)
+            {
+                AnsiConsole.MarkupLine($"[yellow]Warning:[/] Reference car '{settings.ReferenceCar}' not found. Using median.");
+            }
+        }
+
+        reference ??= BalanceAnalyzer.FindReferenceCar(cars);
+
+        if (reference == null)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] Could not determine reference car.");
+            return 1;
+        }
+
+        AnsiConsole.MarkupLine($"[cyan]Reference car:[/] {reference.Name} (Score: {reference.Metrics!.PerformanceScore:F1})");
+        AnsiConsole.WriteLine();
+
+        // Analyze fleet
+        var results = BalanceAnalyzer.AnalyzeFleet(cars, reference);
+
+        // Display results
+        if (settings.OutputFormat == "detailed")
+        {
+            DisplayDetailedResults(results, reference);
+        }
+        else
+        {
+            DisplayTableResults(results, reference);
+        }
+
+        // Export if requested
+        if (!string.IsNullOrEmpty(settings.ExportPath))
+        {
+            ExportResults(results, reference, settings.ExportPath);
+        }
+
+        return 0;
+    }
+
+    private static void DisplayTableResults(List<BalanceAnalyzer.ComparisonResult> results, CarData reference)
+    {
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn("Car")
+            .AddColumn(new TableColumn("Balance").Centered())
+            .AddColumn(new TableColumn("Score Diff").Centered())
+            .AddColumn(new TableColumn("P/W Diff").Centered())
+            .AddColumn(new TableColumn("Top Speed").Centered())
+            .AddColumn(new TableColumn("0-100").Centered())
+            .AddColumn(new TableColumn("Issues").Centered());
+
+        // Add reference car first
+        table.AddRow(
+            $"[cyan]{reference.Name}[/] [dim](ref)[/]",
+            "[green]100[/]",
+            "-",
+            $"{reference.Metrics!.PowerToWeight:F3}",
+            $"{reference.Metrics.TheoreticalTopSpeed:F0}",
+            $"{reference.Metrics.Est0To100:F2}s",
+            "-"
+        );
+
+        foreach (var result in results)
+        {
+            var car = result.Car1;
+            var ratingColor = result.BalanceRating switch
+            {
+                >= 90 => "green",
+                >= 70 => "yellow",
+                >= 50 => "orange3",
+                _ => "red"
+            };
+
+            var scoreDiff = result.PerformanceScoreDifference;
+            var scoreDiffStr = scoreDiff >= 0
+                ? $"[green]+{scoreDiff:F1}[/]"
+                : $"[red]{scoreDiff:F1}[/]";
+
+            var ptwDiff = result.PowerToWeightDifference;
+            var ptwDiffStr = ptwDiff >= 0
+                ? $"[green]+{ptwDiff:F3}[/]"
+                : $"[red]{ptwDiff:F3}[/]";
+
+            var topSpeedDiff = result.TopSpeedDifference;
+            var topSpeedStr = topSpeedDiff >= 0
+                ? $"[green]+{topSpeedDiff:F0}[/]"
+                : $"[red]{topSpeedDiff:F0}[/]";
+
+            var accelDiff = result.AccelTimeDifference;
+            var accelStr = accelDiff <= 0
+                ? $"[green]{accelDiff:F2}s[/]"
+                : $"[red]+{accelDiff:F2}s[/]";
+
+            var issueCount = result.Suggestions.Count(s => s.Priority >= BalanceAnalyzer.SuggestionPriority.Medium);
+            var issuesStr = issueCount > 0 ? $"[yellow]{issueCount}[/]" : "[dim]0[/]";
+
+            table.AddRow(
+                car.Name,
+                $"[{ratingColor}]{result.BalanceRating:F0}[/]",
+                scoreDiffStr,
+                ptwDiffStr,
+                topSpeedStr,
+                accelStr,
+                issuesStr
+            );
+        }
+
+        AnsiConsole.Write(table);
+        AnsiConsole.WriteLine();
+
+        // Summary
+        var avgRating = results.Average(r => r.BalanceRating);
+        var minRating = results.Min(r => r.BalanceRating);
+        var worstCar = results.First(r => r.BalanceRating == minRating);
+
+        AnsiConsole.Write(new Rule("[bold]Summary[/]").RuleStyle("grey"));
+
+        var summaryTable = new Table()
+            .Border(TableBorder.None)
+            .HideHeaders()
+            .AddColumn("")
+            .AddColumn("");
+
+        summaryTable.AddRow("Average Balance Rating:", $"{avgRating:F1}");
+        summaryTable.AddRow("Most Imbalanced:", $"{worstCar.Car1.Name} ({minRating:F0})");
+        summaryTable.AddRow("Total Issues:", results.Sum(r => r.Suggestions.Count(s => s.Priority >= BalanceAnalyzer.SuggestionPriority.Medium)).ToString());
+
+        AnsiConsole.Write(summaryTable);
+    }
+
+    private static void DisplayDetailedResults(List<BalanceAnalyzer.ComparisonResult> results, CarData reference)
+    {
+        foreach (var result in results)
+        {
+            var car = result.Car1;
+
+            var ratingColor = result.BalanceRating switch
+            {
+                >= 90 => "green",
+                >= 70 => "yellow",
+                >= 50 => "orange3",
+                _ => "red"
+            };
+
+            AnsiConsole.Write(new Rule($"[bold]{car.Name}[/] - Balance: [{ratingColor}]{result.BalanceRating:F0}[/]")
+                .RuleStyle("grey"));
+
+            var table = new Table()
+                .Border(TableBorder.Simple)
+                .AddColumn("Metric")
+                .AddColumn("Value")
+                .AddColumn("vs Reference");
+
+            table.AddRow("Score", $"{car.Metrics!.PerformanceScore:F1}", $"{result.PerformanceScoreDifferencePercent:+0.0;-0.0}%");
+            table.AddRow("Power-to-Weight", $"{car.Metrics.PowerToWeight:F3}", $"{result.PowerToWeightDifferencePercent:+0.0;-0.0}%");
+            table.AddRow("Top Speed", $"{car.Metrics.TheoreticalTopSpeed:F0} km/h", $"{result.TopSpeedDifferencePercent:+0.0;-0.0}%");
+            table.AddRow("0-100", $"{car.Metrics.Est0To100:F2}s", $"{result.AccelTimeDifferencePercent:+0.0;-0.0}%");
+
+            AnsiConsole.Write(table);
+
+            if (result.Suggestions.Count > 0)
+            {
+                AnsiConsole.MarkupLine("\n[bold]Suggestions:[/]");
+                foreach (var s in result.Suggestions.Where(s => s.Priority >= BalanceAnalyzer.SuggestionPriority.Medium))
+                {
+                    AnsiConsole.MarkupLine($"  • [{GetPriorityColor(s.Priority)}]{s.Priority}[/]: {s.Rationale}");
+                    AnsiConsole.MarkupLine($"    [dim]{s.File} [[{s.Section}]] {s.Key}: {s.CurrentValue:F2} → {s.SuggestedValue:F2}[/]");
+                }
+            }
+
+            AnsiConsole.WriteLine();
+        }
+    }
+
+    private static string GetPriorityColor(BalanceAnalyzer.SuggestionPriority priority) => priority switch
+    {
+        BalanceAnalyzer.SuggestionPriority.Critical => "red",
+        BalanceAnalyzer.SuggestionPriority.High => "orange3",
+        BalanceAnalyzer.SuggestionPriority.Medium => "yellow",
+        _ => "dim"
+    };
+
+    private static void ExportResults(List<BalanceAnalyzer.ComparisonResult> results, CarData reference, string path)
+    {
+        var exportPath = Path.GetFullPath(path);
+
+        using var writer = new StreamWriter(exportPath);
+
+        writer.WriteLine("# Car Balance Report");
+        writer.WriteLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        writer.WriteLine($"Reference Car: {reference.Name}");
+        writer.WriteLine();
+
+        writer.WriteLine("## Summary");
+        writer.WriteLine();
+        writer.WriteLine("| Car | Balance | Score Diff | P/W Diff | Top Speed | 0-100 |");
+        writer.WriteLine("|-----|---------|------------|----------|-----------|-------|");
+
+        foreach (var result in results)
+        {
+            var car = result.Car1;
+            writer.WriteLine($"| {car.Name} | {result.BalanceRating:F0} | {result.PerformanceScoreDifferencePercent:+0.0;-0.0}% | {result.PowerToWeightDifferencePercent:+0.0;-0.0}% | {result.TopSpeedDifference:+0;-0} km/h | {result.AccelTimeDifference:+0.00;-0.00}s |");
+        }
+
+        writer.WriteLine();
+        writer.WriteLine("## Suggestions");
+        writer.WriteLine();
+
+        foreach (var result in results)
+        {
+            if (result.Suggestions.Count == 0) continue;
+
+            writer.WriteLine($"### {result.Car1.Name}");
+            writer.WriteLine();
+
+            foreach (var s in result.Suggestions)
+            {
+                writer.WriteLine($"- **{s.Priority}**: {s.Rationale}");
+                writer.WriteLine($"  - File: `{s.File}` Section: `[{s.Section}]` Key: `{s.Key}`");
+                writer.WriteLine($"  - Current: `{s.CurrentValue:F2}` → Suggested: `{s.SuggestedValue:F2}`");
+                writer.WriteLine();
+            }
+        }
+
+        AnsiConsole.MarkupLine($"[green]Report exported to:[/] {exportPath}");
+    }
+}

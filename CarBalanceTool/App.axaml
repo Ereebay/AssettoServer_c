@@ -1,0 +1,107 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="CarBalanceTool.App"
+             RequestedThemeVariant="Dark">
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+
+        <!-- Custom Styles -->
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="#1e2a3a"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="16"/>
+            <Setter Property="Margin" Value="6"/>
+            <Setter Property="BoxShadow" Value="0 4 12 0 #40000000"/>
+        </Style>
+
+        <Style Selector="Border.card-header">
+            <Setter Property="Background" Value="#2d3f50"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+
+        <Style Selector="TextBlock.card-title">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#60a5fa"/>
+        </Style>
+
+        <Style Selector="TextBlock.metric-value">
+            <Setter Property="FontSize" Value="28"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#ffffff"/>
+        </Style>
+
+        <Style Selector="TextBlock.metric-value-large">
+            <Setter Property="FontSize" Value="42"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#ffffff"/>
+        </Style>
+
+        <Style Selector="TextBlock.metric-unit">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="#94a3b8"/>
+            <Setter Property="Margin" Value="4,0,0,4"/>
+            <Setter Property="VerticalAlignment" Value="Bottom"/>
+        </Style>
+
+        <Style Selector="TextBlock.metric-label">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="#64748b"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+        </Style>
+
+        <Style Selector="TextBlock.section-header">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#94a3b8"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+
+        <Style Selector="ProgressBar.metric-bar">
+            <Setter Property="Height" Value="8"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="Foreground" Value="#3b82f6"/>
+            <Setter Property="Background" Value="#1e293b"/>
+        </Style>
+
+        <Style Selector="Border.stat-pill">
+            <Setter Property="Background" Value="#1e293b"/>
+            <Setter Property="CornerRadius" Value="16"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Margin" Value="4"/>
+        </Style>
+
+        <Style Selector="Border.balance-badge">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+
+        <Style Selector="Border.suggestion-card">
+            <Setter Property="Background" Value="#1e293b"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="0,8,0,0"/>
+            <Setter Property="BorderThickness" Value="1,0,0,0"/>
+            <Setter Property="BorderBrush" Value="#f59e0b"/>
+        </Style>
+    </Application.Styles>
+
+    <Application.Resources>
+        <SolidColorBrush x:Key="AccentBlue" Color="#3b82f6"/>
+        <SolidColorBrush x:Key="AccentGreen" Color="#22c55e"/>
+        <SolidColorBrush x:Key="AccentRed" Color="#ef4444"/>
+        <SolidColorBrush x:Key="AccentOrange" Color="#f59e0b"/>
+        <SolidColorBrush x:Key="AccentCyan" Color="#06b6d4"/>
+        <SolidColorBrush x:Key="BgDark" Color="#0f172a"/>
+        <SolidColorBrush x:Key="BgCard" Color="#1e2a3a"/>
+        <SolidColorBrush x:Key="BgCardLight" Color="#2d3f50"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#f1f5f9"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#94a3b8"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#64748b"/>
+    </Application.Resources>
+</Application>
