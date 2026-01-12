@@ -1,0 +1,30 @@
+@inherits LayoutComponentBase
+
+<div class="dyno-layout">
+    <aside class="dyno-sidebar @(SidebarOpen ? "open" : "")">
+        <div class="dyno-logo">
+            <h1>AC<span style="color: var(--dyno-accent)">Dyno</span></h1>
+            <span>Assetto Corsa Car Analyzer</span>
+        </div>
+        <NavMenu />
+    </aside>
+    
+    <main class="dyno-main">
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" style="background: var(--status-error); color: white; padding: 1rem; position: fixed; bottom: 0; width: 100%; z-index: 1000; display: none;">
+    An unhandled error has occurred.
+    <a href="" class="reload" style="color: white; margin-left: 1rem;">Reload</a>
+    <a class="dismiss" style="margin-left: 1rem; cursor: pointer;">✕</a>
+</div>
+
+@code {
+    private bool SidebarOpen { get; set; } = false;
+    
+    private void ToggleSidebar()
+    {
+        SidebarOpen = !SidebarOpen;
+    }
+}

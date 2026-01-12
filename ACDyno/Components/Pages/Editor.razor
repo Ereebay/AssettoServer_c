@@ -1,0 +1,604 @@
+@page "/editor"
+@namespace ACDyno.Components.Pages
+@inject CarLibraryService CarLibrary
+@inject WindowService WindowService
+@inject BackupService BackupService
+@inject GeminiService Gemini
+@inject BalanceSuggester BalanceSuggester
+@implements IDisposable
+
+<PageTitle>ACDyno - Tune & Edit</PageTitle>
+
+<div class="dyno-main-header">
+    <h1 class="dyno-main-title">Tune & Edit</h1>
+    <p class="dyno-main-subtitle">Visual tuning with live graphs and AI suggestions</p>
+</div>
+
+@if (CarLibrary.CurrentCar == null)
+{
+    <div class="dyno-card" style="text-align: center; padding: 3rem;">
+        <div style="font-size: 4rem; margin-bottom: 1rem;">🚗</div>
+        <h2 style="color: var(--text-primary); margin-bottom: 1rem;">No Car Selected</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 2rem;">
+            Please analyze a car first to edit its settings.
+        </p>
+        <a href="/analyze" class="btn-dyno btn-dyno-primary" style="text-decoration: none;">
+            <span>📊</span> Go to Analyze
+        </a>
+    </div>
+}
+else
+{
+    var car = CarLibrary.CurrentCar;
+    
+    <div style="display: grid; grid-template-columns: 280px 1fr 320px; gap: var(--space-lg); height: calc(100vh - 200px); min-height: 600px;">
+        <!-- Left Panel - File Categories -->
+        <div class="dyno-card" style="padding: var(--space-md); overflow-y: auto;">
+            <h3 style="margin: 0 0 var(--space-md) 0; font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase;">
+                @car.BasicInfo.ScreenName
+            </h3>
+            
+            <div style="display: flex; flex-direction: column; gap: var(--space-xs);">
+                @foreach (var category in PerformanceCategories)
+                {
+                    <button class="@(SelectedCategory == category.Key ? "btn-dyno btn-dyno-primary" : "btn-dyno btn-dyno-secondary")" 
+                            style="width: 100%; justify-content: flex-start; padding: 0.75rem;"
+                            @onclick="() => SelectCategory(category.Key)">
+                        <span style="margin-right: var(--space-sm);">@category.Icon</span>
+                        @category.Name
+                    </button>
+                }
+            </div>
+            
+            <div style="margin-top: var(--space-lg); padding-top: var(--space-md); border-top: 1px solid var(--border-subtle);">
+                <span style="font-size: 0.8rem; color: var(--text-muted);">
+                    💾 Auto-backup enabled
+                </span>
+            </div>
+        </div>
+        
+        <!-- Center Panel - Editor -->
+        <div class="dyno-card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden;">
+            @if (SelectedCategory == "engine")
+            {
+                <div style="padding: var(--space-md); border-bottom: 1px solid var(--border-primary); background: var(--bg-elevated);">
+                    <h3 style="margin: 0; color: var(--text-primary);">⚙️ Engine Settings</h3>
+                </div>
+                
+                <div style="flex: 1; overflow-y: auto; padding: var(--space-md);">
+                    <!-- Power Curve Graph -->
+                    <div style="margin-bottom: var(--space-lg);">
+                        <h4 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">Power & Torque Curve</h4>
+                        <div style="background: var(--bg-card); border-radius: 8px; padding: var(--space-md); height: 200px; position: relative;">
+                            <svg viewBox="0 0 400 150" style="width: 100%; height: 100%;">
+                                <!-- Grid lines - horizontal -->
+                                <line x1="40" y1="30" x2="390" y2="30" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="40" y1="60" x2="390" y2="60" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="40" y1="90" x2="390" y2="90" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="40" y1="120" x2="390" y2="120" stroke="var(--border-subtle)" stroke-width="1" />
+                                <!-- Grid lines - vertical -->
+                                <line x1="90" y1="10" x2="90" y2="140" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="140" y1="10" x2="140" y2="140" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="190" y1="10" x2="190" y2="140" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="240" y1="10" x2="240" y2="140" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="290" y1="10" x2="290" y2="140" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="340" y1="10" x2="340" y2="140" stroke="var(--border-subtle)" stroke-width="1" />
+                                <line x1="390" y1="10" x2="390" y2="140" stroke="var(--border-subtle)" stroke-width="1" />
+                                
+                                <!-- Power curve (red) -->
+                                <polyline points="@GetPowerCurvePoints()" fill="none" stroke="var(--status-error)" stroke-width="2" />
+                                
+                                <!-- Torque curve (blue) -->
+                                <polyline points="@GetTorqueCurvePoints()" fill="none" stroke="var(--dyno-primary)" stroke-width="2" />
+                            </svg>
+                            <!-- Legend outside SVG -->
+                            <div style="display: flex; gap: var(--space-lg); justify-content: center; margin-top: var(--space-xs);">
+                                <span style="color: var(--status-error); font-size: 0.85rem;">● Power (@car.Metrics.PeakPowerHp.ToString("F0") HP)</span>
+                                <span style="color: var(--dyno-primary); font-size: 0.85rem;">● Torque (@car.Metrics.PeakTorqueNm.ToString("F0") Nm)</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Engine Controls -->
+                    <div class="tune-section">
+                        <h4 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">Engine Parameters</h4>
+                        
+                        <div class="tune-row">
+                            <label>Rev Limiter</label>
+                            <span class="tune-value">@car.Engine.Limiter RPM</span>
+                        </div>
+                        
+                        @if (car.Engine.Turbos.Count > 0)
+                        {
+                            var turbo = car.Engine.Turbos[0];
+                            <div class="tune-row">
+                                <label>Max Boost</label>
+                                <div style="display: flex; align-items: center; gap: var(--space-sm); flex: 1;">
+                                    <input type="range" min="0" max="3" step="0.05" 
+                                           value="@turbo.MaxBoost" 
+                                           @onchange="@(e => UpdateTurboBoost(double.Parse(e.Value?.ToString() ?? "0")))"
+                                           style="flex: 1;" />
+                                    <span class="tune-value" style="width: 80px;">@turbo.MaxBoost.ToString("F2") bar</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (SelectedCategory == "drivetrain")
+            {
+                <div style="padding: var(--space-md); border-bottom: 1px solid var(--border-primary); background: var(--bg-elevated);">
+                    <h3 style="margin: 0; color: var(--text-primary);">🔧 Drivetrain Settings</h3>
+                </div>
+                
+                <div style="flex: 1; overflow-y: auto; padding: var(--space-md);">
+                    <!-- Gear Ratio Display -->
+                    <div style="margin-bottom: var(--space-lg);">
+                        <h4 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">Gear Ratios</h4>
+                        <div style="background: var(--bg-card); border-radius: 8px; padding: var(--space-md);">
+                            <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: var(--space-sm);">
+                                @for (int i = 0; i < car.Drivetrain.GearRatios.Count; i++)
+                                {
+                                    var ratio = car.Drivetrain.GearRatios[i];
+                                    var maxRatio = car.Drivetrain.GearRatios.Max();
+                                    var heightPercent = (ratio / maxRatio) * 100;
+                                    <div style="text-align: center; min-width: 40px;">
+                                        <div style="height: 80px; display: flex; align-items: flex-end; justify-content: center;">
+                                            <div style="width: 30px; height: @(heightPercent)%; background: var(--dyno-primary); border-radius: 4px 4px 0 0;"></div>
+                                        </div>
+                                        <div style="color: var(--text-muted); font-size: 0.75rem; margin-top: 4px;">@(i + 1)</div>
+                                        <div style="color: var(--text-primary); font-family: var(--font-mono); font-size: 0.8rem;">@ratio.ToString("F2")</div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Drivetrain Controls -->
+                    <div class="tune-section">
+                        <div class="tune-row">
+                            <label>Layout</label>
+                            <span class="tune-value">@car.Drivetrain.DriveLayout</span>
+                        </div>
+                        
+                        <div class="tune-row">
+                            <label>Final Drive Ratio</label>
+                            <span class="tune-value">@car.Drivetrain.FinalDrive.ToString("F3")</span>
+                        </div>
+                        
+                        @if (car.Drivetrain.DriveLayout == DriveLayout.AWD && car.Drivetrain.AwdConfig != null)
+                        {
+                            <div class="tune-row">
+                                <label>Center Diff (Front %)</label>
+                                <div style="display: flex; align-items: center; gap: var(--space-sm); flex: 1;">
+                                    <input type="range" min="0" max="100" step="1" 
+                                           value="@car.Drivetrain.AwdConfig.FrontShare"
+                                           style="flex: 1;" disabled />
+                                    <span class="tune-value" style="width: 60px;">@car.Drivetrain.AwdConfig.FrontShare.ToString("F0")%</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (SelectedCategory == "brakes")
+            {
+                <div style="padding: var(--space-md); border-bottom: 1px solid var(--border-primary); background: var(--bg-elevated);">
+                    <h3 style="margin: 0; color: var(--text-primary);">🛑 Brake Settings</h3>
+                </div>
+                
+                <div style="flex: 1; overflow-y: auto; padding: var(--space-md);">
+                    <div class="tune-section">
+                        <div class="tune-row">
+                            <label>Max Brake Torque</label>
+                            <span class="tune-value">@car.Brakes.MaxTorque.ToString("F0") Nm</span>
+                        </div>
+                        
+                        <div class="tune-row">
+                            <label>Brake Bias (Front)</label>
+                            <div style="display: flex; align-items: center; gap: var(--space-sm); flex: 1;">
+                                <span style="color: var(--text-muted); font-size: 0.8rem;">Rear</span>
+                                <input type="range" min="0.4" max="0.8" step="0.01" 
+                                       value="@car.Brakes.FrontShare"
+                                       @onchange="@(e => UpdateBrakeBias(double.Parse(e.Value?.ToString() ?? "0.6")))"
+                                       style="flex: 1;" />
+                                <span style="color: var(--text-muted); font-size: 0.8rem;">Front</span>
+                                <span class="tune-value" style="width: 60px;">@((car.Brakes.FrontShare * 100).ToString("F0"))%</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Visual brake bias indicator -->
+                        <div style="margin-top: var(--space-md); display: flex; gap: var(--space-sm);">
+                            <div style="flex: @(car.Brakes.FrontShare); background: var(--dyno-primary); height: 30px; border-radius: 4px 0 0 4px; display: flex; align-items: center; justify-content: center;">
+                                <span style="color: white; font-size: 0.8rem; font-weight: bold;">FRONT</span>
+                            </div>
+                            <div style="flex: @(1 - car.Brakes.FrontShare); background: var(--dyno-secondary); height: 30px; border-radius: 0 4px 4px 0; display: flex; align-items: center; justify-content: center;">
+                                <span style="color: white; font-size: 0.8rem; font-weight: bold;">REAR</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (SelectedCategory == "tyres")
+            {
+                <div style="padding: var(--space-md); border-bottom: 1px solid var(--border-primary); background: var(--bg-elevated);">
+                    <h3 style="margin: 0; color: var(--text-primary);">🛞 Tyre Settings</h3>
+                </div>
+                
+                <div style="flex: 1; overflow-y: auto; padding: var(--space-md);">
+                    @if (car.Tyres?.DefaultCompound != null)
+                    {
+                        var compound = car.Tyres.DefaultCompound;
+                        <div class="tune-section">
+                            <h4 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">@(compound.Name ?? "Default Compound")</h4>
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
+                                <div class="stat-item" style="text-align: center;">
+                                    <span class="stat-label">Front Grip (DY0)</span>
+                                    <span class="stat-value">@compound.Front.DY0.ToString("F3")</span>
+                                </div>
+                                <div class="stat-item" style="text-align: center;">
+                                    <span class="stat-label">Rear Grip (DY0)</span>
+                                    <span class="stat-value">@compound.Rear.DY0.ToString("F3")</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Grip balance visual -->
+                            <div style="margin-top: var(--space-md);">
+                                <label style="color: var(--text-muted); font-size: 0.85rem;">Grip Balance</label>
+                                <div style="display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-xs);">
+                                    <span style="font-size: 0.8rem;">Oversteer</span>
+                                    <div style="flex: 1; height: 20px; background: linear-gradient(to right, var(--status-error), var(--status-success), var(--dyno-primary)); border-radius: 10px; position: relative;">
+                                        @{
+                                            var gripDiff = compound.Front.DY0 - compound.Rear.DY0;
+                                            var indicatorPos = 50 + (gripDiff * 200); // Scale difference to percentage
+                                            indicatorPos = Math.Clamp(indicatorPos, 5, 95);
+                                        }
+                                        <div style="position: absolute; left: @(indicatorPos)%; top: -2px; width: 4px; height: 24px; background: white; border-radius: 2px; transform: translateX(-50%);"></div>
+                                    </div>
+                                    <span style="font-size: 0.8rem;">Understeer</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else if (SelectedCategory == "aero")
+            {
+                <div style="padding: var(--space-md); border-bottom: 1px solid var(--border-primary); background: var(--bg-elevated);">
+                    <h3 style="margin: 0; color: var(--text-primary);">💨 Aero Settings</h3>
+                </div>
+                
+                <div style="flex: 1; overflow-y: auto; padding: var(--space-md);">
+                    <div class="tune-section">
+                        <div class="tune-row">
+                            <label>Body Drag (CD)</label>
+                            <span class="tune-value">@car.Aero.BodyDragGain.ToString("F3")</span>
+                        </div>
+                        
+                        <div class="tune-row">
+                            <label>Frontal Area</label>
+                            <span class="tune-value">@((car.Aero.BodyElement?.FrontalArea ?? 2.0).ToString("F2")) m²</span>
+                        </div>
+                        
+                        @if (car.Aero.Wings.Count > 0)
+                        {
+                            <h4 style="color: var(--text-secondary); margin: var(--space-md) 0 var(--space-sm) 0;">Wings</h4>
+                            @foreach (var wing in car.Aero.Wings)
+                            {
+                                <div class="tune-row">
+                                    <label>@wing.Name</label>
+                                    <span class="tune-value">CL: @wing.CLGain.ToString("F2") / CD: @wing.CDGain.ToString("F2")</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+            else if (SelectedCategory == "weight")
+            {
+                <div style="padding: var(--space-md); border-bottom: 1px solid var(--border-primary); background: var(--bg-elevated);">
+                    <h3 style="margin: 0; color: var(--text-primary);">⚖️ Weight & Balance</h3>
+                </div>
+                
+                <div style="flex: 1; overflow-y: auto; padding: var(--space-md);">
+                    <div class="tune-section">
+                        <div class="tune-row">
+                            <label>Total Mass</label>
+                            <span class="tune-value">@car.Metrics.CurbWeightKg.ToString("F0") kg</span>
+                        </div>
+                        
+                        <div class="tune-row">
+                            <label>Weight Distribution</label>
+                            <div style="display: flex; align-items: center; gap: var(--space-sm); flex: 1;">
+                                <span style="color: var(--text-muted); font-size: 0.8rem;">Rear</span>
+                                <input type="range" min="30" max="70" step="1" 
+                                       value="@car.Suspension.CgLocation"
+                                       style="flex: 1;" disabled />
+                                <span style="color: var(--text-muted); font-size: 0.8rem;">Front</span>
+                                <span class="tune-value" style="width: 60px;">@car.Suspension.CgLocation.ToString("F0")%</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Weight distribution visual -->
+                        <div style="margin-top: var(--space-md);">
+                            <div style="display: flex; gap: 2px;">
+                                <div style="flex: @car.Suspension.CgLocation; background: var(--dyno-primary); height: 40px; border-radius: 4px 0 0 4px; display: flex; align-items: center; justify-content: center;">
+                                    <span style="color: white; font-weight: bold;">@car.Suspension.CgLocation.ToString("F0")%</span>
+                                </div>
+                                <div style="flex: @(100 - car.Suspension.CgLocation); background: var(--dyno-secondary); height: 40px; border-radius: 0 4px 4px 0; display: flex; align-items: center; justify-content: center;">
+                                    <span style="color: white; font-weight: bold;">@((100 - car.Suspension.CgLocation).ToString("F0"))%</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-top: var(--space-xs);">
+                                <span style="color: var(--text-muted); font-size: 0.8rem;">Front Axle</span>
+                                <span style="color: var(--text-muted); font-size: 0.8rem;">Rear Axle</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+        
+        <!-- Right Panel - AI Suggestions -->
+        <div class="dyno-card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden;">
+            <div style="padding: var(--space-md); border-bottom: 1px solid var(--border-primary); background: var(--bg-elevated);">
+                <h3 style="margin: 0; color: var(--text-primary);">🤖 Balance Suggestions</h3>
+            </div>
+            
+            <div style="flex: 1; overflow-y: auto; padding: var(--space-md);">
+                @if (!Gemini.IsConfigured)
+                {
+                    <div style="text-align: center; padding: var(--space-lg);">
+                        <div style="font-size: 2rem; margin-bottom: var(--space-md);">🔑</div>
+                        <h4 style="color: var(--text-primary);">Setup Gemini API</h4>
+                        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: var(--space-md);">
+                            Add your Gemini API key to get AI-powered tuning suggestions.
+                        </p>
+                        <input type="password" class="form-dyno" style="width: 100%; margin-bottom: var(--space-sm);"
+                               @bind="ApiKeyInput" placeholder="Enter Gemini API key..." />
+                        <button class="btn-dyno btn-dyno-primary" style="width: 100%;" @onclick="SaveApiKey">
+                            Save API Key
+                        </button>
+                    </div>
+                }
+                else if (IsLoadingSuggestions)
+                {
+                    <div style="text-align: center; padding: var(--space-lg);">
+                        <span class="spinner"></span>
+                        <p style="color: var(--text-muted); margin-top: var(--space-md);">Analyzing car with Gemini...</p>
+                    </div>
+                }
+                else if (AiSuggestions != null && AiSuggestions.Success)
+                {
+                    <div style="margin-bottom: var(--space-md);">
+                        <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5;">
+                            @AiSuggestions.Analysis
+                        </p>
+                    </div>
+                    
+                    @if (AiSuggestions.Suggestions.Any())
+                    {
+                        <h4 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">Recommended Changes</h4>
+                        @foreach (var suggestion in AiSuggestions.Suggestions)
+                        {
+                            <div class="suggestion-item" style="background: var(--bg-card); border-radius: 8px; padding: var(--space-sm); margin-bottom: var(--space-sm); border-left: 3px solid var(--dyno-primary);">
+                                <div style="font-size: 0.8rem; color: var(--text-muted);">@suggestion.File → @suggestion.Section</div>
+                                <div style="font-weight: 500; color: var(--text-primary);">@suggestion.Key</div>
+                                <div style="display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-xs);">
+                                    <span style="color: var(--status-error); text-decoration: line-through; font-family: var(--font-mono); font-size: 0.85rem;">@suggestion.CurrentValue</span>
+                                    <span>→</span>
+                                    <span style="color: var(--status-success); font-weight: bold; font-family: var(--font-mono); font-size: 0.85rem;">@suggestion.SuggestedValue</span>
+                                </div>
+                                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: var(--space-xs);">@suggestion.Reason</div>
+                            </div>
+                        }
+                    }
+                    
+                    @if (!string.IsNullOrEmpty(AiSuggestions.Summary))
+                    {
+                        <div style="margin-top: var(--space-md); padding: var(--space-sm); background: rgba(0, 212, 170, 0.1); border-radius: 8px;">
+                            <p style="color: var(--dyno-secondary); font-size: 0.85rem; margin: 0;">
+                                💡 @AiSuggestions.Summary
+                            </p>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div style="text-align: center; padding: var(--space-lg);">
+                        <button class="btn-dyno btn-dyno-primary" style="width: 100%;" @onclick="GetAiSuggestions">
+                            <span>✨</span> Get AI Suggestions
+                        </button>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: var(--space-md);">
+                            AI will analyze this car and suggest tuning changes to improve balance.
+                        </p>
+                    </div>
+                }
+                
+                @if (AiSuggestions != null && !string.IsNullOrEmpty(AiSuggestions.Error))
+                {
+                    <div class="validation-item severity-error">
+                        <span class="validation-icon">❌</span>
+                        <div class="validation-content">
+                            <div class="validation-message">@AiSuggestions.Error</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .tune-section {
+        background: var(--bg-card);
+        border-radius: 8px;
+        padding: var(--space-md);
+        margin-bottom: var(--space-md);
+    }
+    
+    .tune-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-sm) 0;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+    
+    .tune-row:last-child {
+        border-bottom: none;
+    }
+    
+    .tune-row label {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+    
+    .tune-value {
+        font-family: var(--font-mono);
+        color: var(--text-primary);
+        font-weight: 500;
+    }
+    
+    input[type="range"] {
+        -webkit-appearance: none;
+        height: 6px;
+        background: var(--bg-elevated);
+        border-radius: 3px;
+        cursor: pointer;
+    }
+    
+    input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        background: var(--dyno-primary);
+        border-radius: 50%;
+        cursor: pointer;
+    }
+</style>
+
+@code {
+    private string SelectedCategory { get; set; } = "engine";
+    private string ApiKeyInput { get; set; } = "";
+    private bool IsLoadingSuggestions { get; set; } = false;
+    private GeminiBalanceResult? AiSuggestions { get; set; }
+    
+    private List<(string Key, string Name, string Icon)> PerformanceCategories = new()
+    {
+        ("engine", "Engine", "⚙️"),
+        ("drivetrain", "Drivetrain", "🔧"),
+        ("brakes", "Brakes", "🛑"),
+        ("tyres", "Tyres", "🛞"),
+        ("aero", "Aerodynamics", "💨"),
+        ("weight", "Weight", "⚖️")
+    };
+    
+    protected override void OnInitialized()
+    {
+        CarLibrary.OnCurrentCarChanged += OnCarChanged;
+    }
+    
+    private void OnCarChanged()
+    {
+        AiSuggestions = null;
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void SelectCategory(string category)
+    {
+        SelectedCategory = category;
+    }
+    
+    private string GetPowerCurvePoints()
+    {
+        var car = CarLibrary.CurrentCar;
+        if (car?.PowerCurve == null || car.PowerCurve.Points.Count == 0)
+            return "40,100 390,100";
+        
+        var points = car.PowerCurve.Points;
+        var maxRpm = points.Max(p => p.Rpm);
+        var maxPower = car.Metrics.PeakPowerHp;
+        
+        var result = new System.Text.StringBuilder();
+        foreach (var point in points)
+        {
+            var x = 40 + (point.Rpm / maxRpm) * 350;
+            var power = (point.Torque * point.Rpm) / 7120.9; // Convert to HP
+            var y = 130 - (power / maxPower) * 120;
+            result.Append($"{x:F0},{y:F0} ");
+        }
+        
+        return result.ToString().Trim();
+    }
+    
+    private string GetTorqueCurvePoints()
+    {
+        var car = CarLibrary.CurrentCar;
+        if (car?.PowerCurve == null || car.PowerCurve.Points.Count == 0)
+            return "40,100 390,100";
+        
+        var points = car.PowerCurve.Points;
+        var maxRpm = points.Max(p => p.Rpm);
+        var maxTorque = points.Max(p => p.Torque);
+        
+        var result = new System.Text.StringBuilder();
+        foreach (var point in points)
+        {
+            var x = 40 + (point.Rpm / maxRpm) * 350;
+            var y = 130 - (point.Torque / maxTorque) * 120;
+            result.Append($"{x:F0},{y:F0} ");
+        }
+        
+        return result.ToString().Trim();
+    }
+    
+    private void UpdateTurboBoost(double value)
+    {
+        // This would save to file - for now just UI demo
+    }
+    
+    private void UpdateBrakeBias(double value)
+    {
+        // This would save to file - for now just UI demo
+    }
+    
+    private void SaveApiKey()
+    {
+        if (!string.IsNullOrWhiteSpace(ApiKeyInput))
+        {
+            Gemini.SetApiKey(ApiKeyInput);
+            ApiKeyInput = "";
+            StateHasChanged();
+        }
+    }
+    
+    private async Task GetAiSuggestions()
+    {
+        if (CarLibrary.CurrentCar == null) return;
+        
+        IsLoadingSuggestions = true;
+        AiSuggestions = null;
+        
+        try
+        {
+            AiSuggestions = await Gemini.GetBalanceSuggestions(CarLibrary.CurrentCar);
+        }
+        catch (Exception ex)
+        {
+            AiSuggestions = new GeminiBalanceResult
+            {
+                Success = false,
+                Error = ex.Message
+            };
+        }
+        
+        IsLoadingSuggestions = false;
+    }
+    
+    public void Dispose()
+    {
+        CarLibrary.OnCurrentCarChanged -= OnCarChanged;
+    }
+}

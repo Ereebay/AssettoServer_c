@@ -1,0 +1,539 @@
+@page "/analyze"
+@namespace ACDyno.Components.Pages
+@inject CarLibraryService CarLibrary
+@inject WindowService WindowService
+@inject UnrealisticDetector Validator
+@inject GeminiService Gemini
+@implements IDisposable
+
+<PageTitle>ACDyno - Analyze Car</PageTitle>
+
+<div class="dyno-main-header">
+    <h1 class="dyno-main-title">Analyze Car</h1>
+    <p class="dyno-main-subtitle">Physics-based performance analysis from INI data</p>
+</div>
+
+<!-- Car Library Setup -->
+<div class="dyno-card" style="margin-bottom: var(--space-lg);">
+    <div class="dyno-card-header">
+        <div class="dyno-card-icon">📁</div>
+        <h2 class="dyno-card-title">Car Library</h2>
+    </div>
+    
+    <div style="display: flex; gap: var(--space-md); align-items: flex-end; margin-bottom: var(--space-md);">
+        <div style="flex: 1;">
+            <label class="form-label" style="color: var(--text-secondary); margin-bottom: var(--space-xs); display: block;">
+                Cars Folder (contains car subfolders)
+            </label>
+            <input type="text" class="form-dyno" style="width: 100%;" 
+                   @bind="CarsRootPath" 
+                   placeholder="Click Browse or paste path here..." />
+        </div>
+        <button class="btn-dyno btn-dyno-secondary" @onclick="BrowseForFolder">
+            <span>📂</span>
+            Browse
+        </button>
+        <button class="btn-dyno btn-dyno-primary" @onclick="ScanCarsFolder" disabled="@IsScanning">
+            @if (IsScanning)
+            {
+                <span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span>
+            }
+            else
+            {
+                <span>🔍</span>
+            }
+            Scan
+        </button>
+    </div>
+    
+    @if (!string.IsNullOrEmpty(ScanMessage))
+    {
+        <div class="validation-item severity-info" style="margin-bottom: var(--space-md);">
+            <span class="validation-icon">ℹ️</span>
+            <div class="validation-content">
+                <div class="validation-message">@ScanMessage</div>
+            </div>
+        </div>
+    }
+    
+    @if (CarLibrary.AvailableCars.Any())
+    {
+        <div style="display: flex; gap: var(--space-md); align-items: flex-end;">
+            <div style="flex: 1;">
+                <label class="form-label" style="color: var(--text-secondary); margin-bottom: var(--space-xs); display: block;">
+                    Select Car (@CarLibrary.AvailableCars.Count available)
+                </label>
+                <div style="display: flex; gap: var(--space-sm);">
+                    <input type="text" class="form-dyno" style="width: 200px;" 
+                           @bind="CarFilter" @bind:event="oninput"
+                           placeholder="Filter cars..." />
+                    <select class="form-dyno" style="flex: 1;" @bind="SelectedCarFolderName">
+                        <option value="">-- Select a car --</option>
+                        @foreach (var car in FilteredCars)
+                        {
+                            <option value="@car.FolderName">@car.DisplayName</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <button class="btn-dyno btn-dyno-primary" @onclick="LoadSelectedCar" disabled="@(IsLoading || string.IsNullOrEmpty(SelectedCarFolderName))">
+                @if (IsLoading)
+                {
+                    <span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span>
+                }
+                else
+                {
+                    <span>📊</span>
+                }
+                Analyze
+            </button>
+        </div>
+    }
+    
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="validation-item severity-error" style="margin-top: var(--space-md);">
+            <span class="validation-icon">❌</span>
+            <div class="validation-content">
+                <div class="validation-message">@ErrorMessage</div>
+            </div>
+        </div>
+    }
+</div>
+
+@if (LoadedCar != null)
+{
+    var m = LoadedCar.Metrics;
+    
+    <div style="display: grid; grid-template-columns: 350px 1fr; gap: var(--space-lg);">
+        <!-- Left Column - PI Display -->
+        <div>
+            <div class="pi-display">
+                <span class="stat-label">PERFORMANCE INDEX</span>
+                <span class="pi-value">@m.PerformanceIndex</span>
+                <span class="pi-class class-@m.PerformanceClass.ToString().ToLower()">
+                    @m.PerformanceClass
+                </span>
+            </div>
+            
+            @if (m.IsUnrealistic)
+            {
+                <div class="validation-item severity-critical" style="margin-top: var(--space-md);">
+                    <span class="validation-icon">🚨</span>
+                    <div class="validation-content">
+                        <div class="validation-message">Unrealistic Configuration Detected</div>
+                        <div class="validation-detail">This car has values outside realistic bounds</div>
+                    </div>
+                </div>
+            }
+            
+            <div class="dyno-card" style="margin-top: var(--space-lg);">
+                <h3 style="margin: 0 0 var(--space-md) 0; color: var(--text-primary);">@LoadedCar.BasicInfo.ScreenName</h3>
+                <div class="stats-grid" style="grid-template-columns: 1fr;">
+                    <div class="stat-item">
+                        <span class="stat-label">Drivetrain</span>
+                        <span class="stat-value">@m.DriveLayout</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Gears</span>
+                        <span class="stat-value">@m.GearCount<span class="stat-unit">speed</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Curb Weight</span>
+                        <span class="stat-value">@m.CurbWeightLbs.ToString("F0")<span class="stat-unit">lbs</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Weight Distribution</span>
+                        <span class="stat-value">@((m.WeightDistributionFront * 100).ToString("F0"))/@((100 - m.WeightDistributionFront * 100).ToString("F0"))</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Actions -->
+            <div class="dyno-card" style="margin-top: var(--space-lg);">
+                <h4 style="margin: 0 0 var(--space-sm) 0; color: var(--text-secondary); font-size: 0.85rem; text-transform: uppercase;">Quick Actions</h4>
+                <div style="display: flex; flex-direction: column; gap: var(--space-xs);">
+                    <a href="/compare" class="btn-dyno btn-dyno-outline" style="text-align: center; text-decoration: none;">
+                        ⚔️ Compare with another car
+                    </a>
+                    <a href="/balance" class="btn-dyno btn-dyno-outline" style="text-align: center; text-decoration: none;">
+                        ⚖️ Balance this car
+                    </a>
+                    <a href="/editor" class="btn-dyno btn-dyno-outline" style="text-align: center; text-decoration: none;">
+                        ✏️ Edit & Tune
+                    </a>
+                </div>
+            </div>
+            
+            <!-- AI Analysis -->
+            @if (Gemini.IsConfigured)
+            {
+                <div class="dyno-card" style="margin-top: var(--space-lg);">
+                    <h4 style="margin: 0 0 var(--space-sm) 0; color: var(--text-secondary); font-size: 0.85rem; text-transform: uppercase;">
+                        🤖 AI Analysis
+                    </h4>
+                    @if (IsAnalyzing)
+                    {
+                        <div style="text-align: center; padding: var(--space-md);">
+                            <span class="spinner"></span>
+                            <p style="color: var(--text-muted); margin-top: var(--space-sm);">Analyzing with Gemini...</p>
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(AiAnalysis))
+                    {
+                        <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6; white-space: pre-wrap;">@AiAnalysis</p>
+                    }
+                    else
+                    {
+                        <button class="btn-dyno btn-dyno-secondary" style="width: 100%;" @onclick="RunAiAnalysis">
+                            <span>✨</span> Get AI Insights
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+        
+        <!-- Right Column - Stats -->
+        <div>
+            <!-- Performance Scores -->
+            <div class="dyno-card" style="margin-bottom: var(--space-lg);">
+                <div class="dyno-card-header">
+                    <div class="dyno-card-icon">📈</div>
+                    <h2 class="dyno-card-title">Performance Scores</h2>
+                </div>
+                
+                <div class="score-bar-container">
+                    <div class="score-bar-label">
+                        <span class="score-bar-name">Speed</span>
+                        <span class="score-bar-value">@m.SpeedScore.ToString("F0")</span>
+                    </div>
+                    <div class="score-bar">
+                        <div class="score-bar-fill" style="width: @(m.SpeedScore)%;"></div>
+                    </div>
+                </div>
+                
+                <div class="score-bar-container">
+                    <div class="score-bar-label">
+                        <span class="score-bar-name">Handling</span>
+                        <span class="score-bar-value">@m.HandlingScore.ToString("F0")</span>
+                    </div>
+                    <div class="score-bar">
+                        <div class="score-bar-fill" style="width: @(m.HandlingScore)%;"></div>
+                    </div>
+                </div>
+                
+                <div class="score-bar-container">
+                    <div class="score-bar-label">
+                        <span class="score-bar-name">Acceleration</span>
+                        <span class="score-bar-value">@m.AccelerationScore.ToString("F0")</span>
+                    </div>
+                    <div class="score-bar">
+                        <div class="score-bar-fill" style="width: @(m.AccelerationScore)%;"></div>
+                    </div>
+                </div>
+                
+                <div class="score-bar-container">
+                    <div class="score-bar-label">
+                        <span class="score-bar-name">Launch</span>
+                        <span class="score-bar-value">@m.LaunchScore.ToString("F0")</span>
+                    </div>
+                    <div class="score-bar">
+                        <div class="score-bar-fill" style="width: @(m.LaunchScore)%;"></div>
+                    </div>
+                </div>
+                
+                <div class="score-bar-container">
+                    <div class="score-bar-label">
+                        <span class="score-bar-name">Braking</span>
+                        <span class="score-bar-value">@m.BrakingScore.ToString("F0")</span>
+                    </div>
+                    <div class="score-bar">
+                        <div class="score-bar-fill" style="width: @(m.BrakingScore)%;"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Power Stats -->
+            <div class="dyno-card" style="margin-bottom: var(--space-lg);">
+                <div class="dyno-card-header">
+                    <div class="dyno-card-icon">⚡</div>
+                    <h2 class="dyno-card-title">Power & Torque</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Peak Power</span>
+                        <span class="stat-value">@m.PeakPowerHp.ToString("F0")<span class="stat-unit">HP</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">AT RPM</span>
+                        <span class="stat-value">@m.PeakPowerRpm</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Peak Torque</span>
+                        <span class="stat-value">@m.PeakTorqueLbFt.ToString("F0")<span class="stat-unit">lb-ft</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">AT RPM</span>
+                        <span class="stat-value">@m.PeakTorqueRpm</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Wheel Power</span>
+                        <span class="stat-value">@m.WheelPowerHp.ToString("F0")<span class="stat-unit">HP</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Power/Weight</span>
+                        <span class="stat-value">@m.PowerToWeightHpPerTon.ToString("F0")<span class="stat-unit">HP/ton</span></span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Estimated Performance -->
+            <div class="dyno-card" style="margin-bottom: var(--space-lg);">
+                <div class="dyno-card-header">
+                    <div class="dyno-card-icon">⏱️</div>
+                    <h2 class="dyno-card-title">Estimated Performance</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">0-60 mph</span>
+                        <span class="stat-value">@m.Est0To60Mph.ToString("F1")<span class="stat-unit">sec</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Quarter Mile</span>
+                        <span class="stat-value">@m.EstQuarterMileTime.ToString("F1")<span class="stat-unit">sec</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">1/4 Mile Trap</span>
+                        <span class="stat-value">@m.EstQuarterMileTrapMph.ToString("F0")<span class="stat-unit">mph</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Top Speed</span>
+                        <span class="stat-value">@m.TopSpeedMph.ToString("F0")<span class="stat-unit">mph</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Speed Limited By</span>
+                        <span class="stat-value">@m.TopSpeedLimitedBy</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">60-0 Braking</span>
+                        <span class="stat-value">@m.Est60To0Ft.ToString("F0")<span class="stat-unit">ft</span></span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Grip & Handling -->
+            <div class="dyno-card" style="margin-bottom: var(--space-lg);">
+                <div class="dyno-card-header">
+                    <div class="dyno-card-icon">🏁</div>
+                    <h2 class="dyno-card-title">Grip & Handling</h2>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Front Grip (DY0)</span>
+                        <span class="stat-value">@m.FrontLateralGrip.ToString("F3")</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Rear Grip (DY0)</span>
+                        <span class="stat-value">@m.RearLateralGrip.ToString("F3")</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Grip Balance</span>
+                        <span class="stat-value">@GetGripBalanceText(m)</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Max Lateral G</span>
+                        <span class="stat-value">@m.MaxLateralGWithAero.ToString("F2")<span class="stat-unit">g</span></span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Drag (CdA)</span>
+                        <span class="stat-value">@m.DragArea.ToString("F3")</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Downforce (CL)</span>
+                        <span class="stat-value">@m.LiftCoefficient.ToString("F3")</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Validation Warnings -->
+    @if (m.Warnings.Count > 0)
+    {
+        <div class="dyno-card" style="margin-top: var(--space-lg);">
+            <div class="dyno-card-header">
+                <div class="dyno-card-icon">⚠️</div>
+                <h2 class="dyno-card-title">Validation Warnings (@m.Warnings.Count)</h2>
+            </div>
+            <div class="validation-list">
+                @foreach (var warning in m.Warnings)
+                {
+                    <div class="validation-item severity-@warning.Severity.ToString().ToLower()">
+                        <span class="validation-icon">@GetSeverityIcon(warning.Severity)</span>
+                        <div class="validation-content">
+                            <div class="validation-message">[@warning.Code] @warning.Message</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private string CarsRootPath { get; set; } = "";
+    private string CarFilter { get; set; } = "";
+    private string SelectedCarFolderName { get; set; } = "";
+    private bool IsScanning { get; set; } = false;
+    private bool IsLoading { get; set; } = false;
+    private bool IsAnalyzing { get; set; } = false;
+    private string? ScanMessage { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string? AiAnalysis { get; set; }
+    private CarData? LoadedCar { get; set; }
+    
+    private IEnumerable<CarEntry> FilteredCars => string.IsNullOrWhiteSpace(CarFilter)
+        ? CarLibrary.AvailableCars
+        : CarLibrary.AvailableCars.Where(c => 
+            c.DisplayName.Contains(CarFilter, StringComparison.OrdinalIgnoreCase) ||
+            c.FolderName.Contains(CarFilter, StringComparison.OrdinalIgnoreCase));
+    
+    protected override void OnInitialized()
+    {
+        CarLibrary.OnCarsListChanged += OnCarsListChanged;
+        CarLibrary.OnCurrentCarChanged += OnCurrentCarChanged;
+        
+        if (!string.IsNullOrEmpty(CarLibrary.CarsRootPath))
+        {
+            CarsRootPath = CarLibrary.CarsRootPath;
+        }
+        
+        if (CarLibrary.CurrentCar != null)
+        {
+            LoadedCar = CarLibrary.CurrentCar;
+        }
+    }
+    
+    private void OnCarsListChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnCurrentCarChanged()
+    {
+        LoadedCar = CarLibrary.CurrentCar;
+        AiAnalysis = null;
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void BrowseForFolder()
+    {
+        var folder = WindowService.PickFolder("Select Assetto Corsa Cars Folder");
+        if (!string.IsNullOrEmpty(folder))
+        {
+            CarsRootPath = folder;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task ScanCarsFolder()
+    {
+        if (string.IsNullOrWhiteSpace(CarsRootPath))
+        {
+            ErrorMessage = "Please select a cars folder";
+            return;
+        }
+        
+        IsScanning = true;
+        ScanMessage = null;
+        ErrorMessage = null;
+        
+        try
+        {
+            var (success, message) = await CarLibrary.LoadCarsFolder(CarsRootPath);
+            if (success)
+            {
+                ScanMessage = message;
+            }
+            else
+            {
+                ErrorMessage = message;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Error scanning folder: {ex.Message}";
+        }
+        
+        IsScanning = false;
+    }
+    
+    private async Task LoadSelectedCar()
+    {
+        if (string.IsNullOrEmpty(SelectedCarFolderName)) return;
+        
+        IsLoading = true;
+        ErrorMessage = null;
+        AiAnalysis = null;
+        
+        try
+        {
+            var car = await CarLibrary.LoadCar(SelectedCarFolderName);
+            if (car != null)
+            {
+                LoadedCar = car;
+                CarLibrary.SetCurrentCar(car);
+            }
+            else
+            {
+                ErrorMessage = "Failed to load car data";
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load car: {ex.Message}";
+            LoadedCar = null;
+        }
+        
+        IsLoading = false;
+    }
+    
+    private async Task RunAiAnalysis()
+    {
+        if (LoadedCar == null) return;
+        
+        IsAnalyzing = true;
+        try
+        {
+            AiAnalysis = await Gemini.AnalyzeCar(LoadedCar);
+        }
+        catch (Exception ex)
+        {
+            AiAnalysis = $"Analysis failed: {ex.Message}";
+        }
+        IsAnalyzing = false;
+    }
+    
+    private string GetGripBalanceText(PerformanceMetrics m)
+    {
+        var diff = m.GripBalance;
+        if (Math.Abs(diff) < 0.02) return "Neutral";
+        if (diff > 0) return $"Understeer (+{diff:F2})";
+        return $"Oversteer ({diff:F2})";
+    }
+    
+    private string GetSeverityIcon(ValidationSeverity severity) => severity switch
+    {
+        ValidationSeverity.Info => "ℹ️",
+        ValidationSeverity.Warning => "⚠️",
+        ValidationSeverity.Error => "❌",
+        ValidationSeverity.Critical => "🚨",
+        _ => "•"
+    };
+    
+    public void Dispose()
+    {
+        CarLibrary.OnCarsListChanged -= OnCarsListChanged;
+        CarLibrary.OnCurrentCarChanged -= OnCurrentCarChanged;
+    }
+}

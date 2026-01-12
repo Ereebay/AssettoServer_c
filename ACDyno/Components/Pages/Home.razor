@@ -1,0 +1,140 @@
+@page "/"
+@namespace ACDyno.Components.Pages
+@inject CarLoader CarLoader
+
+<PageTitle>ACDyno - Dashboard</PageTitle>
+
+<div class="dyno-main-header">
+    <h1 class="dyno-main-title">Dashboard</h1>
+    <p class="dyno-main-subtitle">Assetto Corsa Car Performance Analyzer</p>
+</div>
+
+<div class="quick-actions">
+    <a href="analyze" class="quick-action">
+        <div class="quick-action-icon analyze">📊</div>
+        <div class="quick-action-content">
+            <h3>Analyze Car</h3>
+            <p>Load and analyze a car mod's performance characteristics</p>
+        </div>
+    </a>
+    
+    <a href="compare" class="quick-action">
+        <div class="quick-action-icon compare">⚖️</div>
+        <div class="quick-action-content">
+            <h3>Compare Cars</h3>
+            <p>Compare two cars side-by-side with race predictions</p>
+        </div>
+    </a>
+    
+    <a href="balance" class="quick-action">
+        <div class="quick-action-icon balance">🔧</div>
+        <div class="quick-action-content">
+            <h3>Balance Suggestions</h3>
+            <p>Get recommendations to balance cars for fair racing</p>
+        </div>
+    </a>
+    
+    <a href="editor" class="quick-action">
+        <div class="quick-action-icon edit">✏️</div>
+        <div class="quick-action-content">
+            <h3>INI Editor</h3>
+            <p>Edit car configuration files with auto-backup</p>
+        </div>
+    </a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--space-lg);">
+    <div class="dyno-card">
+        <div class="dyno-card-header">
+            <div class="dyno-card-icon">🏎️</div>
+            <h2 class="dyno-card-title">Performance Classes</h2>
+        </div>
+        <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">
+            Forza-style classification system for balanced racing
+        </p>
+        <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+            <div class="stat-item" style="text-align: center;">
+                <span class="pi-class class-d">D</span>
+                <span class="stat-label" style="margin-top: var(--space-sm);">100-299</span>
+            </div>
+            <div class="stat-item" style="text-align: center;">
+                <span class="pi-class class-c">C</span>
+                <span class="stat-label" style="margin-top: var(--space-sm);">300-399</span>
+            </div>
+            <div class="stat-item" style="text-align: center;">
+                <span class="pi-class class-b">B</span>
+                <span class="stat-label" style="margin-top: var(--space-sm);">400-499</span>
+            </div>
+            <div class="stat-item" style="text-align: center;">
+                <span class="pi-class class-a">A</span>
+                <span class="stat-label" style="margin-top: var(--space-sm);">500-599</span>
+            </div>
+            <div class="stat-item" style="text-align: center;">
+                <span class="pi-class class-s">S</span>
+                <span class="stat-label" style="margin-top: var(--space-sm);">600-699</span>
+            </div>
+            <div class="stat-item" style="text-align: center;">
+                <span class="pi-class class-s1">S1</span>
+                <span class="stat-label" style="margin-top: var(--space-sm);">700-799</span>
+            </div>
+            <div class="stat-item" style="text-align: center;">
+                <span class="pi-class class-s2">S2</span>
+                <span class="stat-label" style="margin-top: var(--space-sm);">800-899</span>
+            </div>
+            <div class="stat-item" style="text-align: center;">
+                <span class="pi-class class-x">X</span>
+                <span class="stat-label" style="margin-top: var(--space-sm);">900+</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="dyno-card">
+        <div class="dyno-card-header">
+            <div class="dyno-card-icon">📋</div>
+            <h2 class="dyno-card-title">How It Works</h2>
+        </div>
+        <div style="color: var(--text-secondary); line-height: 1.8;">
+            <p><strong style="color: var(--text-primary);">1. Load a Car</strong><br/>
+            Select a car folder from your Assetto Corsa content directory.</p>
+            
+            <p><strong style="color: var(--text-primary);">2. Review Analysis</strong><br/>
+            See power curves, grip levels, aero stats, and calculated PI.</p>
+            
+            <p><strong style="color: var(--text-primary);">3. Detect Issues</strong><br/>
+            Automatic detection of unrealistic or imbalanced values.</p>
+            
+            <p><strong style="color: var(--text-primary);">4. Balance for Racing</strong><br/>
+            Get suggestions to balance cars while preserving character.</p>
+        </div>
+    </div>
+</div>
+
+<div class="dyno-card" style="margin-top: var(--space-lg);">
+    <div class="dyno-card-header">
+        <div class="dyno-card-icon">🎯</div>
+        <h2 class="dyno-card-title">Balance Philosophy</h2>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-lg);">
+        <div>
+            <h4 style="color: var(--dyno-primary); margin-bottom: var(--space-sm);">Preserve Character</h4>
+            <p style="color: var(--text-secondary);">
+                Each car should feel unique. An AWD car will still have better launch, 
+                a lightweight car will be more agile. Balance overall performance, not homogenize handling.
+            </p>
+        </div>
+        <div>
+            <h4 style="color: var(--dyno-accent); margin-bottom: var(--space-sm);">Skill Over Stats</h4>
+            <p style="color: var(--text-secondary);">
+                In your multi-class street racing server with traffic, driver skill should matter most. 
+                Cars in the same class should be competitive regardless of their individual strengths.
+            </p>
+        </div>
+        <div>
+            <h4 style="color: var(--class-s); margin-bottom: var(--space-sm);">Trade-offs Matter</h4>
+            <p style="color: var(--text-secondary);">
+                More power means harder to control. Better grip means potential for higher cornering speeds 
+                but also higher corner entry commitment. Each advantage has its skill tax.
+            </p>
+        </div>
+    </div>
+</div>

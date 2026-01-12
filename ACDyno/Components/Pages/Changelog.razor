@@ -1,0 +1,199 @@
+@page "/changelog"
+@namespace ACDyno.Components.Pages
+
+<PageTitle>ACDyno - Changelog</PageTitle>
+
+<div class="dyno-main-header">
+    <h1 class="dyno-main-title">Changelog</h1>
+    <p class="dyno-main-subtitle">Version history and updates</p>
+</div>
+
+<!-- Current Version -->
+<div class="dyno-card" style="margin-bottom: var(--space-lg); border-left: 4px solid var(--accent-primary);">
+    <div style="display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md);">
+        <span style="background: var(--accent-primary); color: var(--bg-primary); padding: 0.25rem 0.75rem; border-radius: 4px; font-weight: 600;">
+            CURRENT
+        </span>
+        <h2 style="margin: 0; color: var(--text-primary);">v0.5.1</h2>
+        <span style="color: var(--text-muted); font-size: 0.9rem;">January 11, 2026</span>
+    </div>
+    
+    <h3 style="color: var(--status-error); margin-bottom: var(--space-sm);">🐛 Bug Fix - Aero Drag Coefficient</h3>
+    
+    <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">
+        Fixed critical bug where drag coefficient was incorrectly read as CD_GAIN (a multiplier, typically 1.0) 
+        instead of the actual Cd value from LUT files. This was causing severely underestimated top speeds.
+    </p>
+    
+    <div class="changelog-section">
+        <h4>What was wrong</h4>
+        <ul>
+            <li>Top speed showing ~194 km/h for cars that should do 300+ km/h</li>
+            <li>CD_GAIN is a multiplier, not the actual drag coefficient</li>
+            <li>Actual Cd is stored in LUT files (e.g., aero_body_AOA_CD.lut)</li>
+        </ul>
+    </div>
+    
+    <div class="changelog-section" style="margin-top: var(--space-md);">
+        <h4>What's fixed</h4>
+        <ul>
+            <li>Now parses aero LUT files to get actual drag coefficient</li>
+            <li>Uses coefficient at 0 degrees angle of attack</li>
+            <li>Proper gear-limited vs drag-limited speed comparison</li>
+        </ul>
+    </div>
+</div>
+
+<!-- v0.5.0 -->
+<div class="dyno-card" style="margin-bottom: var(--space-lg);">
+    <div style="display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md);">
+        <h2 style="margin: 0; color: var(--text-primary);">v0.5.0</h2>
+        <span style="color: var(--text-muted); font-size: 0.9rem;">January 10, 2026</span>
+    </div>
+    
+    <h3 style="color: var(--accent-primary); margin-bottom: var(--space-sm);">🔬 Physics-Based Performance Metrics Overhaul</h3>
+    
+    <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">
+        Complete redesign of the performance calculation system based on motorsport engineering, 
+        dynamometer software, and Forza PI system research.
+    </p>
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-md);">
+        <div class="changelog-section">
+            <h4>⚡ New Calculations</h4>
+            <ul>
+                <li>Physics-based top speed (drag vs gear limited)</li>
+                <li>Hale formula for quarter mile times</li>
+                <li>Traction-limited acceleration detection</li>
+                <li>Aero-adjusted braking distances</li>
+                <li>Weight distribution impact on lateral G</li>
+            </ul>
+        </div>
+        
+        <div class="changelog-section">
+            <h4>📊 New Scoring System</h4>
+            <ul>
+                <li>Speed: 80-280 mph range</li>
+                <li>Acceleration: 2-12 sec 0-60 range</li>
+                <li>Handling: 0.6-2.5 G range</li>
+                <li>Braking: 85-400 ft range</li>
+                <li>Launch: Composite drivetrain score</li>
+            </ul>
+        </div>
+        
+        <div class="changelog-section">
+            <h4>🏁 PI Classes</h4>
+            <ul>
+                <li>D (100-400): Economy cars</li>
+                <li>C (401-500): Hot hatches</li>
+                <li>B (501-600): Sports cars</li>
+                <li>A (601-700): High-performance</li>
+                <li>S1/S2/S3: Race cars</li>
+                <li>X (999): Unrealistic</li>
+            </ul>
+        </div>
+        
+        <div class="changelog-section">
+            <h4>🤖 AI Improvements</h4>
+            <ul>
+                <li>Gemini 2.0 Flash API</li>
+                <li>Sends 40+ raw metrics to AI</li>
+                <li>Better analysis prompts</li>
+                <li>Structured balance suggestions</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Previous Versions -->
+<div class="dyno-card" style="margin-bottom: var(--space-lg);">
+    <div style="display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md);">
+        <h2 style="margin: 0; color: var(--text-primary);">v0.4.0</h2>
+        <span style="color: var(--text-muted); font-size: 0.9rem;">January 10, 2026</span>
+    </div>
+    
+    <h3 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">UI Improvements & New Features</h3>
+    
+    <ul style="color: var(--text-secondary); margin: 0; padding-left: 1.5rem;">
+        <li>Native folder picker using Photino dialogs</li>
+        <li>Gemini AI integration for balance suggestions</li>
+        <li>Visual tuning editor with power curves and gear ratio charts</li>
+        <li>Replaced custom dropdowns with native selects</li>
+        <li>Fixed SVG rendering in Blazor/Razor</li>
+    </ul>
+</div>
+
+<div class="dyno-card" style="margin-bottom: var(--space-lg);">
+    <div style="display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md);">
+        <h2 style="margin: 0; color: var(--text-primary);">v0.3.0</h2>
+        <span style="color: var(--text-muted); font-size: 0.9rem;">January 9, 2026</span>
+    </div>
+    
+    <h3 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">Desktop Application</h3>
+    
+    <ul style="color: var(--text-secondary); margin: 0; padding-left: 1.5rem;">
+        <li>Converted from Blazor Server to Photino.Blazor desktop app</li>
+        <li>Dark theme with racing-inspired UI</li>
+        <li>Car library system with folder scanning</li>
+        <li>Basic performance metrics calculation</li>
+        <li>Car comparison view</li>
+        <li>Balance suggestions system</li>
+    </ul>
+</div>
+
+<div class="dyno-card" style="margin-bottom: var(--space-lg);">
+    <div style="display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md);">
+        <h2 style="margin: 0; color: var(--text-primary);">v0.2.0</h2>
+        <span style="color: var(--text-muted); font-size: 0.9rem;">January 8, 2026</span>
+    </div>
+    
+    <h3 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">Core Parsing Engine</h3>
+    
+    <ul style="color: var(--text-secondary); margin: 0; padding-left: 1.5rem;">
+        <li>Complete INI file parser for all AC car data</li>
+        <li>Power/torque curve parsing from LUT files</li>
+        <li>Turbo boost curve calculation</li>
+        <li>Tire compound data extraction</li>
+        <li>Unrealistic value detection</li>
+    </ul>
+</div>
+
+<div class="dyno-card">
+    <div style="display: flex; align-items: center; gap: var(--space-md); margin-bottom: var(--space-md);">
+        <h2 style="margin: 0; color: var(--text-primary);">v0.1.0</h2>
+        <span style="color: var(--text-muted); font-size: 0.9rem;">January 7, 2026</span>
+    </div>
+    
+    <h3 style="color: var(--text-secondary); margin-bottom: var(--space-sm);">Initial Release</h3>
+    
+    <ul style="color: var(--text-secondary); margin: 0; padding-left: 1.5rem;">
+        <li>Project scaffolding</li>
+        <li>Basic Blazor Server application</li>
+        <li>Initial data models for car specifications</li>
+    </ul>
+</div>
+
+<style>
+    .changelog-section {
+        background: var(--bg-tertiary);
+        padding: var(--space-md);
+        border-radius: var(--radius-md);
+    }
+    
+    .changelog-section h4 {
+        color: var(--text-primary);
+        margin: 0 0 var(--space-sm) 0;
+        font-size: 0.95rem;
+    }
+    
+    .changelog-section ul {
+        color: var(--text-secondary);
+        margin: 0;
+        padding-left: 1.25rem;
+        font-size: 0.9rem;
+    }
+    
+    .changelog-section li {
+        margin-bottom: 0.25rem;
+    }
+</style>

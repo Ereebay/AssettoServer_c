@@ -1,0 +1,312 @@
+@page "/balance"
+@namespace ACDyno.Components.Pages
+@inject CarLibraryService CarLibrary
+@inject BalanceSuggester BalanceSuggester
+@inject BackupService BackupService
+@implements IDisposable
+
+<PageTitle>ACDyno - Balance Suggestions</PageTitle>
+
+<div class="dyno-main-header">
+    <h1 class="dyno-main-title">Balance Suggestions</h1>
+    <p class="dyno-main-subtitle">Get recommendations to balance cars while preserving their unique character</p>
+</div>
+
+<div class="dyno-card" style="margin-bottom: var(--space-lg);">
+    <div class="dyno-card-header">
+        <div class="dyno-card-icon">🎯</div>
+        <h2 class="dyno-card-title">Select Cars</h2>
+    </div>
+    
+    @if (!CarLibrary.AvailableCars.Any())
+    {
+        <div class="validation-item severity-warning">
+            <span class="validation-icon">⚠️</span>
+            <div class="validation-content">
+                <div class="validation-message">No car library loaded</div>
+                <div class="validation-detail">Go to the <a href="/analyze">Analyze</a> page first to scan your cars folder.</div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg);">
+            <div>
+                <label class="form-label" style="color: var(--text-secondary); margin-bottom: var(--space-xs); display: block;">
+                    <strong style="color: var(--dyno-primary);">Target Car</strong> - The car to adjust @(CarLibrary.CurrentCar != null ? "(from Analyze)" : "")
+                </label>
+                <select class="form-dyno" style="width: 100%;" @bind="TargetFolderName">
+                    <option value="">-- Select target car --</option>
+                    @foreach (var car in CarLibrary.AvailableCars)
+                    {
+                        <option value="@car.FolderName">@car.DisplayName</option>
+                    }
+                </select>
+            </div>
+            
+            <div>
+                <label class="form-label" style="color: var(--text-secondary); margin-bottom: var(--space-xs); display: block;">
+                    <strong style="color: var(--dyno-secondary);">Reference Car</strong> - The target performance level
+                </label>
+                <select class="form-dyno" style="width: 100%;" @bind="ReferenceFolderName">
+                    <option value="">-- Select reference car --</option>
+                    @foreach (var car in CarLibrary.AvailableCars)
+                    {
+                        <option value="@car.FolderName">@car.DisplayName</option>
+                    }
+                </select>
+            </div>
+        </div>
+        
+        <div style="margin-top: var(--space-lg); display: flex; gap: var(--space-md);">
+            <button class="btn-dyno btn-dyno-primary" @onclick="GenerateSuggestions" disabled="@(IsLoading || string.IsNullOrEmpty(TargetFolderName) || string.IsNullOrEmpty(ReferenceFolderName))">
+                @if (IsLoading)
+                {
+                    <span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span>
+                }
+                else
+                {
+                    <span>🔧</span>
+                }
+                Generate Balance Suggestions
+            </button>
+        </div>
+    }
+    
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="validation-item severity-error" style="margin-top: var(--space-md);">
+            <span class="validation-icon">❌</span>
+            <div class="validation-content">
+                <div class="validation-message">@ErrorMessage</div>
+            </div>
+        </div>
+    }
+</div>
+
+@if (Recommendation != null)
+{
+    <!-- Summary Header -->
+    <div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: var(--space-lg); margin-bottom: var(--space-lg);">
+        <div class="dyno-card" style="text-align: center;">
+            <span class="stat-label">TARGET CAR</span>
+            <h3 style="margin: var(--space-sm) 0;">@Recommendation.TargetCar.BasicInfo.ScreenName</h3>
+            <div style="display: flex; justify-content: center; align-items: center; gap: var(--space-md);">
+                <span class="pi-class class-@Recommendation.TargetCar.Metrics.PerformanceClass.ToString().ToLower()">
+                    @Recommendation.TargetCar.Metrics.PerformanceClass
+                </span>
+                <span style="font-family: var(--font-mono); font-size: 1.5rem;">
+                    PI @Recommendation.TargetCar.Metrics.PerformanceIndex
+                </span>
+            </div>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+            <span style="font-size: 2rem;">→</span>
+            <span style="font-family: var(--font-mono); color: @(Recommendation.CurrentPIDifference > 0 ? "var(--status-error)" : "var(--status-success)");">
+                @(Recommendation.CurrentPIDifference > 0 ? "+" : "")@Recommendation.CurrentPIDifference PI
+            </span>
+        </div>
+        
+        <div class="dyno-card" style="text-align: center;">
+            <span class="stat-label">REFERENCE CAR</span>
+            <h3 style="margin: var(--space-sm) 0;">@Recommendation.ReferenceCar.BasicInfo.ScreenName</h3>
+            <div style="display: flex; justify-content: center; align-items: center; gap: var(--space-md);">
+                <span class="pi-class class-@Recommendation.ReferenceCar.Metrics.PerformanceClass.ToString().ToLower()">
+                    @Recommendation.ReferenceCar.Metrics.PerformanceClass
+                </span>
+                <span style="font-family: var(--font-mono); font-size: 1.5rem;">
+                    PI @Recommendation.ReferenceCar.Metrics.PerformanceIndex
+                </span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Character Notes -->
+    @if (!string.IsNullOrEmpty(Recommendation.CharacterNotes))
+    {
+        <div class="dyno-card" style="margin-bottom: var(--space-lg); background: rgba(0, 212, 170, 0.1); border: 1px solid var(--dyno-secondary);">
+            <div style="display: flex; align-items: start; gap: var(--space-md);">
+                <span style="font-size: 1.5rem;">🎭</span>
+                <div>
+                    <h4 style="margin: 0 0 var(--space-xs) 0; color: var(--dyno-secondary);">Character Preserved</h4>
+                    <p style="margin: 0; color: var(--text-secondary);">@Recommendation.CharacterNotes</p>
+                </div>
+            </div>
+        </div>
+    }
+    
+    <!-- Quick Fixes -->
+    @if (Recommendation.Suggestions.Any())
+    {
+        <div class="dyno-card" style="margin-bottom: var(--space-lg);">
+            <div class="dyno-card-header">
+                <div class="dyno-card-icon">⚡</div>
+                <h2 class="dyno-card-title">Quick Fixes</h2>
+                <span style="color: var(--text-muted); font-size: 0.9rem;">Highest impact changes</span>
+            </div>
+            
+            <div style="display: grid; gap: var(--space-md);">
+                @foreach (var suggestion in Recommendation.Suggestions.OrderByDescending(s => Math.Abs(s.PIChange)).Take(3))
+                {
+                    <div class="suggestion-card" style="background: var(--bg-elevated); border-radius: 8px; padding: var(--space-md); border-left: 4px solid var(--dyno-primary);">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div>
+                                <span style="color: var(--text-muted); font-size: 0.85rem;">@suggestion.File → @suggestion.Section</span>
+                                <h4 style="margin: var(--space-xs) 0; color: var(--text-primary);">@suggestion.Key</h4>
+                            </div>
+                            <span class="pi-badge" style="background: @(suggestion.PIChange < 0 ? "var(--status-success)" : "var(--status-warning)"); color: white; padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); font-size: 0.85rem;">
+                                @(suggestion.PIChange > 0 ? "+" : "")@suggestion.PIChange PI
+                            </span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: var(--space-md); margin-top: var(--space-sm);">
+                            <span style="font-family: var(--font-mono); color: var(--status-error); text-decoration: line-through;">@suggestion.CurrentValue</span>
+                            <span>→</span>
+                            <span style="font-family: var(--font-mono); color: var(--status-success); font-weight: bold;">@suggestion.SuggestedValue</span>
+                        </div>
+                        <p style="margin: var(--space-xs) 0 0 0; color: var(--text-muted); font-size: 0.9rem;">@suggestion.Reason</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    
+    <!-- All Suggestions -->
+    @if (Recommendation.Suggestions.Count > 3)
+    {
+        <div class="dyno-card" style="margin-bottom: var(--space-lg);">
+            <div class="dyno-card-header">
+                <div class="dyno-card-icon">📋</div>
+                <h2 class="dyno-card-title">All Suggestions (@Recommendation.Suggestions.Count)</h2>
+            </div>
+            
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 1px solid var(--border-primary);">
+                        <th style="text-align: left; padding: var(--space-sm); color: var(--text-secondary);">File</th>
+                        <th style="text-align: left; padding: var(--space-sm); color: var(--text-secondary);">Section / Key</th>
+                        <th style="text-align: right; padding: var(--space-sm); color: var(--text-secondary);">Current</th>
+                        <th style="text-align: center; padding: var(--space-sm); color: var(--text-secondary);">→</th>
+                        <th style="text-align: left; padding: var(--space-sm); color: var(--text-secondary);">Suggested</th>
+                        <th style="text-align: right; padding: var(--space-sm); color: var(--text-secondary);">PI Impact</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var suggestion in Recommendation.Suggestions.OrderByDescending(s => Math.Abs(s.PIChange)))
+                    {
+                        <tr style="border-bottom: 1px solid var(--border-subtle);">
+                            <td style="padding: var(--space-sm); font-family: var(--font-mono); color: var(--text-muted);">@suggestion.File</td>
+                            <td style="padding: var(--space-sm);">
+                                <span style="color: var(--text-secondary);">@suggestion.Section</span>
+                                <span style="color: var(--text-muted);">/</span>
+                                <span style="color: var(--text-primary);">@suggestion.Key</span>
+                            </td>
+                            <td style="text-align: right; padding: var(--space-sm); font-family: var(--font-mono); color: var(--status-error);">@suggestion.CurrentValue</td>
+                            <td style="text-align: center; padding: var(--space-sm); color: var(--text-muted);">→</td>
+                            <td style="padding: var(--space-sm); font-family: var(--font-mono); color: var(--status-success); font-weight: bold;">@suggestion.SuggestedValue</td>
+                            <td style="text-align: right; padding: var(--space-sm); font-family: var(--font-mono); @(suggestion.PIChange < 0 ? "color: var(--status-success);" : "color: var(--status-warning);")">
+                                @(suggestion.PIChange > 0 ? "+" : "")@suggestion.PIChange
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    
+    <!-- Apply Changes Button -->
+    <div style="margin-top: var(--space-lg); padding: var(--space-lg); background: var(--bg-panel); border-radius: 12px; text-align: center;">
+        <p style="color: var(--text-secondary); margin-bottom: var(--space-md);">
+            Ready to apply these changes? Use the INI Editor for manual editing with auto-backup.
+        </p>
+        <a href="/editor" class="btn-dyno btn-dyno-success" style="text-decoration: none;">
+            <span>✏️</span>
+            Open INI Editor
+        </a>
+    </div>
+}
+
+@code {
+    private string TargetFolderName { get; set; } = "";
+    private string ReferenceFolderName { get; set; } = "";
+    private bool IsLoading { get; set; } = false;
+    private string? ErrorMessage { get; set; }
+    private BalanceRecommendation? Recommendation { get; set; }
+    
+    protected override void OnInitialized()
+    {
+        CarLibrary.OnCarsListChanged += OnCarsListChanged;
+        CarLibrary.OnCurrentCarChanged += OnCurrentCarChanged;
+        
+        // Auto-populate Target if there's a current car from Analyze tab
+        if (CarLibrary.CurrentCar != null)
+        {
+            var entry = CarLibrary.AvailableCars.FirstOrDefault(c => 
+                c.DisplayName == CarLibrary.CurrentCar.BasicInfo.ScreenName);
+            if (entry != null)
+            {
+                TargetFolderName = entry.FolderName;
+            }
+        }
+    }
+    
+    private void OnCarsListChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private void OnCurrentCarChanged()
+    {
+        // Update Target when current car changes
+        if (CarLibrary.CurrentCar != null)
+        {
+            var entry = CarLibrary.AvailableCars.FirstOrDefault(c => 
+                c.DisplayName == CarLibrary.CurrentCar.BasicInfo.ScreenName);
+            if (entry != null)
+            {
+                TargetFolderName = entry.FolderName;
+            }
+        }
+        InvokeAsync(StateHasChanged);
+    }
+    
+    private async Task GenerateSuggestions()
+    {
+        if (string.IsNullOrEmpty(TargetFolderName) || string.IsNullOrEmpty(ReferenceFolderName))
+        {
+            ErrorMessage = "Please select both target and reference cars";
+            return;
+        }
+        
+        IsLoading = true;
+        ErrorMessage = null;
+        
+        try
+        {
+            var target = await CarLibrary.LoadCar(TargetFolderName);
+            var reference = await CarLibrary.LoadCar(ReferenceFolderName);
+            
+            if (target != null && reference != null)
+            {
+                Recommendation = BalanceSuggester.SuggestBalance(target, reference);
+            }
+            else
+            {
+                ErrorMessage = "Failed to load one or both cars";
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to generate suggestions: {ex.Message}";
+            Recommendation = null;
+        }
+        
+        IsLoading = false;
+    }
+    
+    public void Dispose()
+    {
+        CarLibrary.OnCarsListChanged -= OnCarsListChanged;
+        CarLibrary.OnCurrentCarChanged -= OnCurrentCarChanged;
+    }
+}
