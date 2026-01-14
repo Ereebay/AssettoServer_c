@@ -1,0 +1,112 @@
+[
+  {
+    "RouteId": "c1_inner_cw",
+    "RouteName": "C1 Inner Loop (CW)",
+    "Category": "C1",
+    "DistanceKm": 14.8,
+    "Description": "Clockwise inner loop around Tokyo",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "c1_inner_ccw",
+    "RouteName": "C1 Inner Loop (CCW)",
+    "Category": "C1",
+    "DistanceKm": 14.8,
+    "Description": "Counter-clockwise inner loop around Tokyo",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "c1_outer_cw",
+    "RouteName": "C1 Outer Loop (CW)",
+    "Category": "C1",
+    "DistanceKm": 15.2,
+    "Description": "Clockwise outer loop",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "wangan_east",
+    "RouteName": "Wangan Eastbound",
+    "Category": "Wangan",
+    "DistanceKm": 12.5,
+    "Description": "Bayshore route heading east",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "wangan_west",
+    "RouteName": "Wangan Westbound",
+    "Category": "Wangan",
+    "DistanceKm": 12.5,
+    "Description": "Bayshore route heading west",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "yokohane_up",
+    "RouteName": "Yokohane Upline",
+    "Category": "Yokohane",
+    "DistanceKm": 8.3,
+    "Description": "Yokohama-Haneda route upbound",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "yokohane_down",
+    "RouteName": "Yokohane Downline",
+    "Category": "Yokohane",
+    "DistanceKm": 8.3,
+    "Description": "Yokohama-Haneda route downbound",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "shibuya_ikebukuro",
+    "RouteName": "Shibuya → Ikebukuro",
+    "Category": "C1 Sections",
+    "DistanceKm": 5.2,
+    "Description": "Sprint from Shibuya to Ikebukuro",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "ginza_shinjuku",
+    "RouteName": "Ginza → Shinjuku",
+    "Category": "C1 Sections",
+    "DistanceKm": 6.8,
+    "Description": "Classic touge sprint",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  },
+  {
+    "RouteId": "full_shuto_cw",
+    "RouteName": "Full Shuto Loop (CW)",
+    "Category": "Full Loop",
+    "DistanceKm": 45.0,
+    "Description": "Complete Shuto Expressway circuit",
+    "Checkpoints": [],
+    "StartZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "FinishZone": { "X": 0, "Y": 0, "Z": 0, "Radius": 50 },
+    "IsActive": true
+  }
+]

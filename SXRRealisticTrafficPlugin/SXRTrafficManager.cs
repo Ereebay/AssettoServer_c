@@ -1,14 +1,16 @@
 using System.Collections.Concurrent;
 using System.Numerics;
-using SXRSXRRealisticTrafficPlugin.Models;
-using SXRSXRRealisticTrafficPlugin.Spatial;
-using SXRSXRRealisticTrafficPlugin.Zones;
+using AssettoServer.Server.Ai;
+using SXRRealisticTrafficPlugin.Models;
+using SXRRealisticTrafficPlugin.Spatial;
+using SXRRealisticTrafficPlugin.Zones;
 
-namespace SXRSXRRealisticTrafficPlugin;
+namespace SXRRealisticTrafficPlugin;
 
 /// <summary>
 /// Main traffic simulation manager.
 /// Coordinates IDM car-following, MOBIL lane changes, spawning, and updates.
+/// Now integrated with AssettoServer's AiState system.
 /// </summary>
 public class SXRTrafficManager
 {
@@ -17,6 +19,9 @@ public class SXRTrafficManager
     private readonly List<TrafficZone> _zones;
     private readonly ConcurrentDictionary<int, TrafficVehicleState> _vehicles = new();
     private readonly Random _rng = new();
+    
+    // Track lane change cooldowns per AiState
+    private readonly ConcurrentDictionary<AiState, long> _laneChangeTimes = new();
     
     private int _nextVehicleId = 1;
     private float _currentTime = 0f;
@@ -30,6 +35,37 @@ public class SXRTrafficManager
         _config = config;
         _splineGrid = new SplineGrid(config.SpatialCellSize, config.MaxLaneCount);
         _zones = ShutoZones.GetDefaultZones();
+    }
+    
+    /// <summary>
+    /// Check if an AiState can attempt a lane change (cooldown check)
+    /// </summary>
+    public bool CanAttemptLaneChange(AiState aiState)
+    {
+        if (!aiState.Initialized) return false;
+        
+        if (_laneChangeTimes.TryGetValue(aiState, out long lastChangeTime))
+        {
+            long cooldownMs = (long)(_config.LaneChangeCooldown * 1000);
+            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastChangeTime > cooldownMs;
+        }
+        
+        return true; // No record = can change
+    }
+    
+    /// <summary>
+    /// Record that an AiState performed a lane change
+    /// </summary>
+    public void RecordLaneChange(AiState aiState)
+    {
+        _laneChangeTimes[aiState] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        
+        // Clean up old entries for despawned states
+        var toRemove = _laneChangeTimes.Keys.Where(s => !s.Initialized).ToList();
+        foreach (var key in toRemove)
+        {
+            _laneChangeTimes.TryRemove(key, out _);
+        }
     }
     
     /// <summary>
@@ -351,6 +387,34 @@ public class SXRTrafficManager
     public void RemovePlayer(int playerId)
     {
         _players.TryRemove(playerId, out _);
+    }
+    
+    /// <summary>
+    /// Estimate spline position from world coordinates.
+    /// Returns 0 if no spline data is available.
+    /// </summary>
+    public float EstimateSplinePosition(Vector3 worldPosition)
+    {
+        // Use spatial grid to find nearest spline position
+        // This is a simplified approach - for production, you'd want
+        // to load actual spline data and do proper nearest-point lookup
+        
+        // For now, return a rough estimate based on the zone the player is in
+        foreach (var zone in _zones)
+        {
+            if (zone.ContainsWorldPosition(worldPosition.X, worldPosition.Z))
+            {
+                // Return the midpoint of the first spline range in this zone
+                if (zone.SplineRanges.Count > 0)
+                {
+                    var range = zone.SplineRanges[0];
+                    return (range.Start + range.End) / 2f;
+                }
+            }
+        }
+        
+        // Fallback: no matching zone found
+        return 0f;
     }
     
     /// <summary>

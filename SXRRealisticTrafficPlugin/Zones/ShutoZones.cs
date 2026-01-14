@@ -170,7 +170,7 @@ public static class ShutoZones
 /// <summary>
 /// Represents a traffic zone with specific characteristics
 /// </summary>
-public class TrafficZone
+public partial class TrafficZone
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";

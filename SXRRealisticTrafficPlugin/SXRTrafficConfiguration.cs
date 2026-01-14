@@ -1,7 +1,7 @@
 using JetBrains.Annotations;
 using YamlDotNet.Serialization;
 
-namespace SXRSXRRealisticTrafficPlugin;
+namespace SXRRealisticTrafficPlugin;
 
 /// <summary>
 /// Configuration for the realistic traffic system.

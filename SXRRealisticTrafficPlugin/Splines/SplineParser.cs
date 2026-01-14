@@ -20,7 +20,7 @@ public class SplineParser
         // Check if it's a ZIP archive
         using var fs = File.OpenRead(path);
         byte[] header = new byte[4];
-        fs.Read(header, 0, 4);
+        fs.ReadExactly(header, 0, 4);
         fs.Position = 0;
         
         bool isZip = header[0] == 0x50 && header[1] == 0x4B; // PK signature

@@ -1,0 +1,73 @@
+# SXR Leaderboard Plugin Configuration
+
+# Enable/disable the plugin
+Enabled: true
+
+# Enable Lua UI for in-game leaderboard display
+EnableLuaUI: true
+
+# ============================================================================
+# FEATURE TOGGLES
+# ============================================================================
+
+# Enable time trial leaderboards
+EnableTimeTrials: true
+
+# Enable longest run (endurance) tracking
+EnableLongestRun: true
+
+# ============================================================================
+# PLAYER RANKS
+# ============================================================================
+
+# Minimum races to appear in ranked leaderboards
+MinRacesForRanking: 5
+
+# Starting Elo rating for new players
+StartingElo: 1000
+
+# Elo K-factor for rating calculations
+EloKFactor: 32
+
+# ============================================================================
+# TIME TRIALS
+# ============================================================================
+
+# Maximum entries to keep per route
+MaxTimeTrialEntriesPerRoute: 1000
+
+# Whether to allow dirty (collision) times on leaderboard
+AllowDirtyTimes: true
+
+# Maximum wall hits before run is invalidated
+MaxWallHitsForValid: 5
+
+# ============================================================================
+# LONGEST RUN
+# ============================================================================
+
+# Minimum races in a run to be recorded
+MinRacesForLongestRun: 3
+
+# Maximum entries to keep in longest run leaderboard
+MaxLongestRunEntries: 500
+
+# ============================================================================
+# UI SETTINGS
+# ============================================================================
+
+# Default entries per page
+DefaultPageSize: 20
+
+# Maximum entries per page (API limit)
+MaxPageSize: 100
+
+# Auto-refresh interval for Lua UI (seconds)
+UiRefreshIntervalSeconds: 30
+
+# ============================================================================
+# HTTP API
+# ============================================================================
+
+# Enable HTTP API
+EnableHttpApi: true
