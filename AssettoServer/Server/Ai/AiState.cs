@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Numerics;
@@ -44,6 +44,34 @@ public class AiState : IDisposable
     public byte SpawnCounter { get; private set; }
     public float ClosestAiObstacleDistance { get; private set; }
     public EntryCar EntryCar { get; }
+
+    // === SXR TRAFFIC PERSONALITY SYSTEM ===
+    /// <summary>
+    /// Driver aggressiveness (0-1). 0 = passive/safe, 1 = aggressive/fast
+    /// - 0: Drives 10 under limit, rarely changes lanes, very polite
+    /// - 1: Drives 30 over limit, cuts through traffic, minimal politeness
+    /// </summary>
+    public float Aggressiveness { get; private set; }
+    
+    /// <summary>
+    /// Current lateral offset from spline center (meters). Negative = left, positive = right.
+    /// </summary>
+    public float LateralOffset { get; private set; }
+    
+    /// <summary>
+    /// Whether a lane change is currently in progress
+    /// </summary>
+    public bool IsChangingLanes => _laneChangeActive;
+    
+    private bool _laneChangeActive;
+    private int _laneChangeSourcePointId;
+    private int _laneChangeTargetPointId;
+    private float _laneChangeStartTime;
+    private float _laneChangeDuration;
+    private bool _laneChangeIsLeft;
+    private float _lastLaneChangeTime;
+    private float _lastProactiveLaneCheckTime;
+    // === END SXR TRAFFIC PERSONALITY ===
 
     private const float WalkingSpeed = 10 / 3.6f;
 
@@ -122,19 +150,49 @@ public class AiState : IDisposable
     public void Despawn()
     {
         Initialized = false;
+        _laneChangeActive = false;
+        LateralOffset = 0;
+        Aggressiveness = 0;
+        _lastProactiveLaneCheckTime = 0;
         _spline.SlowestAiStates.Leave(CurrentSplinePointId, this);
     }
 
     private void SetRandomSpeed()
     {
-        float variation = _configuration.Extra.AiParams.MaxSpeedMs * _configuration.Extra.AiParams.MaxSpeedVariationPercent;
-
+        // === SXR: Aggressiveness-based speed ===
+        // Generate aggressiveness on spawn (weighted distribution - more passive drivers than aggressive)
+        // Use a biased distribution: most drivers are average, few are very aggressive
+        float rawRandom = (float)Random.Shared.NextDouble();
+        Aggressiveness = rawRandom * rawRandom; // Bias toward 0 (passive), fewer aggressive drivers
+        
+        // Base speed variation
+        float baseMaxSpeed = _configuration.Extra.AiParams.MaxSpeedMs;
+        float variation = baseMaxSpeed * _configuration.Extra.AiParams.MaxSpeedVariationPercent;
+        
+        // Get configurable speed offsets
+        float passiveOffsetMs = LaneChangeConfig.PassiveSpeedOffsetKmh / 3.6f;
+        float aggressiveOffsetMs = LaneChangeConfig.AggressiveSpeedOffsetKmh / 3.6f;
+        
+        // Aggressiveness speed modifier:
+        // 0.0 aggression = passive offset (default -10 km/h under limit)
+        // 0.5 aggression = at limit (average)
+        // 1.0 aggression = aggressive offset (default +30 km/h over limit)
+        float speedModifierMs = (float)MathUtils.Lerp(passiveOffsetMs, aggressiveOffsetMs, Aggressiveness);
+        
+        // Fast lane offset (if there's a lane to the left, we're in a slow lane)
         float fastLaneOffset = 0;
         if (_spline.Points[CurrentSplinePointId].LeftId >= 0)
         {
             fastLaneOffset = _configuration.Extra.AiParams.RightLaneOffsetMs;
         }
-        InitialMaxSpeed = _configuration.Extra.AiParams.MaxSpeedMs + fastLaneOffset - (variation / 2) + (float)Random.Shared.NextDouble() * variation;
+        
+        // Calculate final speed with small random variation
+        float randomVariation = (-variation / 2) + (float)Random.Shared.NextDouble() * variation;
+        InitialMaxSpeed = baseMaxSpeed + fastLaneOffset + speedModifierMs + randomVariation * 0.3f;
+        
+        // Ensure minimum speed for safety
+        InitialMaxSpeed = MathF.Max(InitialMaxSpeed, 8.33f); // Min 30 km/h
+        
         CurrentSpeed = InitialMaxSpeed;
         TargetSpeed = InitialMaxSpeed;
         MaxSpeed = InitialMaxSpeed;
@@ -147,6 +205,11 @@ public class AiState : IDisposable
 
     public void Teleport(int pointId)
     {
+        // Reset any active lane change
+        _laneChangeActive = false;
+        LateralOffset = 0;
+        _indicator = 0;
+        
         _junctionEvaluator.Clear();
         CurrentSplinePointId = pointId;
         if (!_junctionEvaluator.TryNext(CurrentSplinePointId, out var nextPointId))
@@ -567,6 +630,42 @@ public class AiState : IDisposable
         
         MaxSpeed = maxSpeed;
         SetTargetSpeed(targetSpeed, deceleration, EntryCar.AiAcceleration);
+        
+        // === SXR: Evaluate lane change ===
+        if (!_laneChangeActive)
+        {
+            float currentTimeSec = _sessionManager.ServerTimeMilliseconds / 1000f;
+            
+            // Reactive lane change: when blocked by slower traffic
+            if (hasObstacle && splineLookahead.ClosestAiState != null)
+            {
+                TryMobilLaneChange(splineLookahead.ClosestAiState, splineLookahead.ClosestAiStateDistance);
+            }
+            // Proactive lane change for aggressive drivers: check ahead even when not blocked
+            else if (Aggressiveness > 0.5f && splineLookahead.ClosestAiState != null)
+            {
+                // More aggressive = checks more frequently and at greater distance
+                float proactiveCheckInterval = (float)MathUtils.Lerp(3f, 0.5f, Aggressiveness);
+                float proactiveLookahead = (float)MathUtils.Lerp(50f, 150f, Aggressiveness);
+                
+                if (currentTimeSec - _lastProactiveLaneCheckTime > proactiveCheckInterval)
+                {
+                    _lastProactiveLaneCheckTime = currentTimeSec;
+                    
+                    // Check if there's slower traffic ahead within proactive lookahead
+                    if (splineLookahead.ClosestAiStateDistance < proactiveLookahead)
+                    {
+                        float leaderSpeed = Math.Min(splineLookahead.ClosestAiState.CurrentSpeed, splineLookahead.ClosestAiState.TargetSpeed);
+                        
+                        // If we're significantly faster than the leader, try to find a faster lane
+                        if (CurrentSpeed > leaderSpeed + 5f) // 5 m/s = 18 km/h faster
+                        {
+                            TryProactiveLaneChange(splineLookahead.ClosestAiState, splineLookahead.ClosestAiStateDistance);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     public void StopForCollision()
@@ -656,11 +755,55 @@ public class AiState : IDisposable
             Z = ops.GetCamber(CurrentSplinePointId, _currentVecProgress / _currentVecLength)
         };
 
+        // === SXR: Calculate position with lane change offset ===
+        Vector3 position = smoothPos.Position with { Y = smoothPos.Position.Y + EntryCar.AiSplineHeightOffsetMeters };
+        
+        if (_laneChangeActive)
+        {
+            float currentTimeSec = _sessionManager.ServerTimeMilliseconds / 1000f;
+            bool wasActive = _laneChangeActive;
+            UpdateLaneChange(currentTimeSec);
+            
+            // If lane change just completed, recalculate position from NEW spline
+            if (wasActive && !_laneChangeActive)
+            {
+                // Recalculate smoothPos from new spline point
+                if (_junctionEvaluator.TryNext(CurrentSplinePointId, out var newNextPoint))
+                {
+                    smoothPos = CatmullRom.Evaluate(ops.Points[CurrentSplinePointId].Position, 
+                        ops.Points[newNextPoint].Position, 
+                        _startTangent, 
+                        _endTangent, 
+                        _currentVecProgress / _currentVecLength);
+                    
+                    position = smoothPos.Position with { Y = smoothPos.Position.Y + EntryCar.AiSplineHeightOffsetMeters };
+                    
+                    rotation = new Vector3
+                    {
+                        X = MathF.Atan2(smoothPos.Tangent.Z, smoothPos.Tangent.X) - MathF.PI / 2,
+                        Y = (MathF.Atan2(new Vector2(smoothPos.Tangent.Z, smoothPos.Tangent.X).Length(), smoothPos.Tangent.Y) - MathF.PI / 2) * -1f,
+                        Z = ops.GetCamber(CurrentSplinePointId, _currentVecProgress / _currentVecLength)
+                    };
+                }
+            }
+            else if (LateralOffset != 0f)
+            {
+                // Calculate right vector (perpendicular to forward direction in XZ plane)
+                Vector3 right = Vector3.Cross(smoothPos.Tangent, Vector3.UnitY);
+                if (right.LengthSquared() > 0.001f)
+                {
+                    right = Vector3.Normalize(right);
+                    position += right * LateralOffset;
+                }
+            }
+        }
+        // === END SXR ===
+
         float tyreAngularSpeed = GetTyreAngularSpeed(CurrentSpeed, EntryCar.TyreDiameterMeters);
         byte encodedTyreAngularSpeed =  (byte) (Math.Clamp(MathF.Round(MathF.Log10(tyreAngularSpeed + 1.0f) * 20.0f) * Math.Sign(tyreAngularSpeed), -100.0f, 154.0f) + 100.0f);
 
         Status.Timestamp = _sessionManager.ServerTimeMilliseconds;
-        Status.Position = smoothPos.Position with { Y = smoothPos.Position.Y + EntryCar.AiSplineHeightOffsetMeters };
+        Status.Position = position;
         Status.Rotation = rotation;
         Status.Velocity = smoothPos.Tangent * CurrentSpeed;
         Status.SteerAngle = 127;
@@ -701,5 +844,496 @@ public class AiState : IDisposable
         if (daytimeLights || sunPosition == null) return lightFlags;
 
         return sunPosition.Value.Altitude < twilight ? lightFlags : 0;
+    }
+    
+    // ============================================================================
+    // SXR LANE CHANGE SYSTEM
+    // ============================================================================
+    
+    // Helper to get lane change params
+    private LaneChangeParams LaneChangeConfig => _configuration.Extra.LaneChangeParams;
+    private float LaneChangeCooldown => LaneChangeConfig.LaneChangeCooldownSeconds;
+    private float LaneWidth => LaneChangeConfig.LaneWidthMeters;
+    private bool LaneChangesEnabled => LaneChangeConfig.EnableLaneChanges;
+    private bool LaneChangeDebugLogging => LaneChangeConfig.DebugLogging;
+    private bool ProactiveLaneChangesEnabled => LaneChangeConfig.EnableProactiveLaneChanges;
+    
+    /// <summary>
+    /// Start a smooth lane change to an adjacent lane
+    /// </summary>
+    public void StartLaneChange(int targetPointId, bool isLeft)
+    {
+        if (_laneChangeActive) return;
+        if (targetPointId < 0) return;
+        if (!LaneChangesEnabled) return;
+        
+        float currentTimeSec = _sessionManager.ServerTimeMilliseconds / 1000f;
+        
+        _laneChangeActive = true;
+        _laneChangeSourcePointId = CurrentSplinePointId;
+        _laneChangeTargetPointId = targetPointId;
+        _laneChangeStartTime = currentTimeSec;
+        
+        // Aggressive drivers change lanes faster
+        float baseDuration = CalculateLaneChangeDuration(CurrentSpeed);
+        float aggressionSpeedMultiplier = (float)MathUtils.Lerp(1.2f, 0.7f, Aggressiveness);
+        _laneChangeDuration = baseDuration * aggressionSpeedMultiplier;
+        
+        _laneChangeIsLeft = isLeft;
+        _lastLaneChangeTime = currentTimeSec;
+        LateralOffset = 0;
+        
+        // Set turn indicator
+        _indicator = isLeft ? CarStatusFlags.IndicateLeft : CarStatusFlags.IndicateRight;
+        
+        if (LaneChangeDebugLogging)
+        {
+            Log.Debug("AI {SessionId} [Aggr:{Aggression:F2}] starting {Direction} lane change (duration: {Duration:F1}s)", 
+                EntryCar.SessionId, Aggressiveness, isLeft ? "left" : "right", _laneChangeDuration);
+        }
+    }
+    
+    /// <summary>
+    /// Update lane change progress - called from Update()
+    /// </summary>
+    private void UpdateLaneChange(float currentTimeSec)
+    {
+        if (!_laneChangeActive) return;
+        
+        // Safety check - abort if adjacent lane no longer exists at current position
+        var currentPoint = _spline.Points[CurrentSplinePointId];
+        int adjacentLane = _laneChangeIsLeft ? currentPoint.LeftId : currentPoint.RightId;
+        if (adjacentLane < 0)
+        {
+            // Lane ended - abort lane change
+            _laneChangeActive = false;
+            LateralOffset = 0;
+            _indicator = 0;
+            if (LaneChangeDebugLogging)
+            {
+                Log.Debug("AI {SessionId} lane change aborted - target lane ended", EntryCar.SessionId);
+            }
+            return;
+        }
+        
+        float elapsed = currentTimeSec - _laneChangeStartTime;
+        float progress = Math.Clamp(elapsed / _laneChangeDuration, 0f, 1f);
+        
+        // Quintic polynomial for smooth S-curve: 10t³ - 15t⁴ + 6t⁵
+        float t = progress;
+        float t2 = t * t;
+        float t3 = t2 * t;
+        float t4 = t3 * t;
+        float t5 = t4 * t;
+        float polynomial = 10f * t3 - 15f * t4 + 6f * t5;
+        
+        // Calculate lateral offset (negative for left, positive for right)
+        LateralOffset = LaneWidth * polynomial * (_laneChangeIsLeft ? -1f : 1f);
+        
+        // Lane change complete
+        if (progress >= 1f)
+        {
+            FinalizeLaneChange();
+        }
+    }
+    
+    /// <summary>
+    /// Called when lane change completes to switch spline point
+    /// </summary>
+    private void FinalizeLaneChange()
+    {
+        // Get the adjacent lane point from our CURRENT position, not the stale starting position
+        var currentPoint = _spline.Points[CurrentSplinePointId];
+        int targetPointId = _laneChangeIsLeft ? currentPoint.LeftId : currentPoint.RightId;
+        
+        // Reset state
+        _laneChangeActive = false;
+        LateralOffset = 0;
+        _indicator = 0;
+        
+        if (targetPointId < 0)
+        {
+            // No adjacent lane at current position - lane ended during change
+            if (LaneChangeDebugLogging)
+            {
+                Log.Warning("AI {SessionId} lane change failed - no adjacent lane at current position", EntryCar.SessionId);
+            }
+            return;
+        }
+        
+        int sourcePointId = CurrentSplinePointId;
+        
+        // Update spline tracking
+        _spline.SlowestAiStates.Leave(sourcePointId, this);
+        _spline.SlowestAiStates.Enter(targetPointId, this);
+        
+        // Switch to new spline point
+        _currentSplinePointId = targetPointId;
+        
+        // Recalculate tangents for new lane
+        _junctionEvaluator.Clear();
+        if (_junctionEvaluator.TryNext(CurrentSplinePointId, out var nextPointId))
+        {
+            _currentVecLength = (_spline.Points[nextPointId].Position - _spline.Points[CurrentSplinePointId].Position).Length();
+            // Preserve progress ratio within the segment
+            _currentVecProgress = Math.Min(_currentVecProgress, _currentVecLength * 0.9f);
+            CalculateTangents();
+        }
+        
+        if (LaneChangeDebugLogging)
+        {
+            Log.Debug("AI {SessionId} completed lane change to point {PointId}", 
+                EntryCar.SessionId, targetPointId);
+        }
+    }
+    
+    /// <summary>
+    /// Calculate lane change duration based on speed
+    /// </summary>
+    private float CalculateLaneChangeDuration(float speedMs)
+    {
+        float baseDuration = LaneChangeConfig.BaseLaneChangeDurationSeconds;
+        float minDuration = LaneChangeConfig.MinLaneChangeDurationSeconds;
+        float maxDuration = LaneChangeConfig.MaxLaneChangeDurationSeconds;
+        
+        // ~baseDuration at 100 km/h, scales up with speed
+        float baseSpeed = 27.8f;   // 100 km/h
+        float speedFactor = MathF.Max(1f, speedMs / baseSpeed);
+        float duration = baseDuration * (1f + 0.5f * MathF.Log(speedFactor));
+        return Math.Clamp(duration, minDuration, maxDuration);
+    }
+    
+    /// <summary>
+    /// Try to change lanes using MOBIL algorithm (reactive - when blocked)
+    /// </summary>
+    private void TryMobilLaneChange(AiState currentLeader, float currentLeaderDistance)
+    {
+        if (!LaneChangesEnabled) return;
+        
+        float minSpeed = LaneChangeConfig.MinSpeedForLaneChange;
+        float maxLeaderDist = LaneChangeConfig.MaxLeaderDistanceForLaneChange;
+        
+        // Aggressiveness affects cooldown: passive = longer wait, aggressive = shorter
+        float baseCooldown = LaneChangeCooldown;
+        float effectiveCooldown = (float)MathUtils.Lerp(baseCooldown * 2f, baseCooldown * 0.3f, Aggressiveness);
+        
+        // Check cooldown
+        float currentTimeSec = _sessionManager.ServerTimeMilliseconds / 1000f;
+        if (currentTimeSec - _lastLaneChangeTime < effectiveCooldown)
+            return;
+        
+        // Don't change lanes at low speed or if gap is large
+        // Aggressive drivers will try lane changes at smaller gaps
+        float effectiveMaxLeaderDist = (float)MathUtils.Lerp(maxLeaderDist * 0.5f, maxLeaderDist * 1.5f, Aggressiveness);
+        if (CurrentSpeed < minSpeed || currentLeaderDistance > effectiveMaxLeaderDist)
+            return;
+        
+        var point = _spline.Points[CurrentSplinePointId];
+        
+        // Try left lane first (passing lane in Japan)
+        if (point.LeftId >= 0 && EvaluateLaneChange(point.LeftId, currentLeader, currentLeaderDistance, true))
+        {
+            StartLaneChange(point.LeftId, true);
+            return;
+        }
+        
+        // Try right lane
+        if (point.RightId >= 0 && EvaluateLaneChange(point.RightId, currentLeader, currentLeaderDistance, false))
+        {
+            StartLaneChange(point.RightId, false);
+        }
+    }
+    
+    /// <summary>
+    /// Proactive lane change for aggressive drivers - looks ahead before being fully blocked
+    /// </summary>
+    private void TryProactiveLaneChange(AiState aheadVehicle, float aheadDistance)
+    {
+        if (!LaneChangesEnabled) return;
+        if (!ProactiveLaneChangesEnabled) return;
+        if (Aggressiveness < 0.4f) return; // Only medium-aggressive+ drivers do this
+        
+        float currentTimeSec = _sessionManager.ServerTimeMilliseconds / 1000f;
+        
+        // Shorter cooldown for proactive checks
+        float proactiveCooldown = (float)MathUtils.Lerp(8f, 2f, Aggressiveness);
+        if (currentTimeSec - _lastLaneChangeTime < proactiveCooldown)
+            return;
+        
+        var point = _spline.Points[CurrentSplinePointId];
+        
+        // For proactive changes, prefer the passing lane (left in Japan) more strongly
+        // Aggressive drivers want to be in the fast lane
+        if (point.LeftId >= 0)
+        {
+            var (leftLeader, leftLeaderDist) = FindLeaderInLane(point.LeftId, 250f);
+            
+            // Check if left lane is clear or has faster traffic
+            bool leftIsBetter = leftLeader == null || 
+                (leftLeaderDist > aheadDistance * 1.5f) ||
+                (leftLeader.CurrentSpeed > aheadVehicle.CurrentSpeed + 3f);
+            
+            if (leftIsBetter && EvaluateProactiveLaneChange(point.LeftId, true))
+            {
+                StartLaneChange(point.LeftId, true);
+                return;
+            }
+        }
+        
+        // Try right lane if left isn't available or viable
+        if (point.RightId >= 0)
+        {
+            var (rightLeader, rightLeaderDist) = FindLeaderInLane(point.RightId, 250f);
+            
+            bool rightIsBetter = rightLeader == null || 
+                (rightLeaderDist > aheadDistance * 1.3f) ||
+                (rightLeader.CurrentSpeed > aheadVehicle.CurrentSpeed + 2f);
+            
+            if (rightIsBetter && EvaluateProactiveLaneChange(point.RightId, false))
+            {
+                StartLaneChange(point.RightId, false);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Evaluate proactive lane change with less strict requirements for aggressive drivers
+    /// </summary>
+    private bool EvaluateProactiveLaneChange(int targetLanePointId, bool isLeft)
+    {
+        var ops = _spline.Operations;
+        
+        if (!ops.IsSameDirection(CurrentSplinePointId, targetLanePointId))
+            return false;
+        
+        // Aggressive drivers accept tighter gaps
+        float safeGapMultiplier = (float)MathUtils.Lerp(1.2f, 0.6f, Aggressiveness);
+        float baseSafeGap = CurrentSpeed * 1.5f; // ~1.5 seconds at current speed
+        float minSafeGap = baseSafeGap * safeGapMultiplier;
+        
+        float lookahead = (float)MathUtils.Lerp(150f, 250f, Aggressiveness);
+        float lookbehind = (float)MathUtils.Lerp(80f, 40f, Aggressiveness); // Aggressive = checks less behind
+        
+        // Find vehicles in target lane
+        var (targetLeader, targetLeaderDist) = FindLeaderInLane(targetLanePointId, lookahead);
+        var (targetFollower, targetFollowerDist) = FindFollowerInLane(targetLanePointId, lookbehind);
+        
+        // Safety check - even aggressive drivers won't cut off someone too close
+        if (targetFollower != null && targetFollowerDist > 0 && targetFollowerDist < minSafeGap * 0.5f)
+        {
+            return false;
+        }
+        
+        // Check follower won't need to brake too hard
+        if (targetFollower != null && targetFollowerDist > 0)
+        {
+            float safeDecel = (float)MathUtils.Lerp(3f, 5f, Aggressiveness); // Aggressive accepts harder braking from followers
+            float followerAccelAfter = CalculateIdmAcceleration(
+                targetFollower.CurrentSpeed, 
+                targetFollower.InitialMaxSpeed, 
+                targetFollowerDist, 
+                CurrentSpeed);
+            
+            if (followerAccelAfter < -safeDecel)
+                return false;
+        }
+        
+        // For proactive changes, we just need the lane to be better, not necessarily blocked
+        return targetLeader == null || targetLeaderDist > minSafeGap;
+    }
+    
+    /// <summary>
+    /// Evaluate if a lane change is beneficial and safe using MOBIL, scaled by aggressiveness
+    /// </summary>
+    private bool EvaluateLaneChange(int targetLanePointId, AiState currentLeader, float currentLeaderDistance, bool isLeft)
+    {
+        var ops = _spline.Operations;
+        
+        // Check same direction
+        if (!ops.IsSameDirection(CurrentSplinePointId, targetLanePointId))
+            return false;
+        
+        // === AGGRESSIVENESS-SCALED PARAMETERS ===
+        // Passive (0): Very polite, high safety margins, high threshold
+        // Aggressive (1): Low politeness, accepts tighter gaps, low threshold
+        
+        float basePoliteness = LaneChangeConfig.MobilPoliteness;
+        float baseSafeDecel = LaneChangeConfig.MobilSafeDeceleration;
+        float baseThreshold = LaneChangeConfig.MobilThreshold;
+        float keepSlowLaneBias = LaneChangeConfig.MobilKeepSlowLaneBias;
+        
+        // Scale parameters by aggressiveness
+        float politeness = (float)MathUtils.Lerp(basePoliteness + 0.3f, basePoliteness * 0.2f, Aggressiveness);
+        float safeDecel = (float)MathUtils.Lerp(baseSafeDecel * 0.7f, baseSafeDecel * 1.3f, Aggressiveness);
+        float threshold = (float)MathUtils.Lerp(baseThreshold + 0.2f, baseThreshold * 0.3f, Aggressiveness);
+        
+        // Aggressive drivers have less bias to stay in slow lane - they want the fast lane
+        float effectiveBias = (float)MathUtils.Lerp(keepSlowLaneBias * 1.5f, keepSlowLaneBias * 0.3f, Aggressiveness);
+        
+        // Aggressive drivers look further ahead and less behind
+        float lookahead = (float)MathUtils.Lerp(150f, 300f, Aggressiveness);
+        float lookbehind = (float)MathUtils.Lerp(120f, 60f, Aggressiveness);
+        
+        // Find leader and follower in target lane
+        var (targetLeader, targetLeaderDist) = FindLeaderInLane(targetLanePointId, lookahead);
+        var (targetFollower, targetFollowerDist) = FindFollowerInLane(targetLanePointId, lookbehind);
+        
+        // === SAFETY CRITERION ===
+        // New follower must not need to brake too hard
+        if (targetFollower != null && targetFollowerDist > 0)
+        {
+            // Also check absolute minimum gap (even aggressive drivers won't cut someone off at 5m)
+            float absoluteMinGap = (float)MathUtils.Lerp(25f, 12f, Aggressiveness);
+            if (targetFollowerDist < absoluteMinGap)
+                return false;
+            
+            float followerAccelAfter = CalculateIdmAcceleration(
+                targetFollower.CurrentSpeed, 
+                targetFollower.InitialMaxSpeed, 
+                targetFollowerDist, 
+                CurrentSpeed);
+            
+            if (followerAccelAfter < -safeDecel)
+                return false;
+        }
+        
+        // === INCENTIVE CRITERION ===
+        
+        // My current acceleration
+        float accCurrent = CalculateIdmAcceleration(CurrentSpeed, InitialMaxSpeed, currentLeaderDistance, currentLeader.CurrentSpeed);
+        
+        // My acceleration in target lane
+        float accTarget = targetLeader != null && targetLeaderDist > 0
+            ? CalculateIdmAcceleration(CurrentSpeed, InitialMaxSpeed, targetLeaderDist, targetLeader.CurrentSpeed)
+            : CalculateIdmFreeRoad(CurrentSpeed, InitialMaxSpeed);
+        
+        // Follower's disadvantage
+        float followerDisadvantage = 0f;
+        if (targetFollower != null && targetFollowerDist > 0)
+        {
+            float followerAccelBefore = CalculateIdmFreeRoad(targetFollower.CurrentSpeed, targetFollower.InitialMaxSpeed);
+            float followerAccelAfter = CalculateIdmAcceleration(
+                targetFollower.CurrentSpeed, 
+                targetFollower.InitialMaxSpeed, 
+                targetFollowerDist, 
+                CurrentSpeed);
+            followerDisadvantage = followerAccelBefore - followerAccelAfter;
+        }
+        
+        // My advantage
+        float myAdvantage = accTarget - accCurrent;
+        
+        // Keep-left bias for Japan (left-hand traffic)
+        float bias = isLeft ? -effectiveBias : effectiveBias;
+        
+        // MOBIL criterion
+        float incentive = myAdvantage - politeness * followerDisadvantage - bias;
+        
+        if (LaneChangeDebugLogging && incentive > threshold * 0.5f)
+        {
+            Log.Debug("AI {SessionId} [Aggr:{Aggression:F2}] lane change eval: incentive={Incentive:F2}, threshold={Threshold:F2}, politeness={Politeness:F2}",
+                EntryCar.SessionId, Aggressiveness, incentive, threshold, politeness);
+        }
+        
+        return incentive > threshold;
+    }
+    
+    /// <summary>
+    /// Find leader vehicle in an adjacent lane
+    /// </summary>
+    private (AiState? Leader, float Distance) FindLeaderInLane(int lanePointId, float maxDistance = 200f)
+    {
+        if (lanePointId < 0) return (null, -1);
+        
+        var ops = _spline.Operations;
+        if (!ops.IsSameDirection(CurrentSplinePointId, lanePointId))
+            return (null, -1);
+        
+        var points = _spline.Points;
+        float distanceTravelled = 0;
+        int pointId = lanePointId;
+        
+        while (distanceTravelled < maxDistance)
+        {
+            ref readonly var point = ref points[pointId];
+            if (point.NextId < 0) break;
+            
+            distanceTravelled += point.Length;
+            pointId = point.NextId;
+            
+            var slowest = _spline.SlowestAiStates[pointId];
+            if (slowest != null && slowest.Initialized)
+            {
+                return (slowest, distanceTravelled);
+            }
+        }
+        
+        return (null, -1);
+    }
+    
+    /// <summary>
+    /// Find follower vehicle in an adjacent lane
+    /// </summary>
+    private (AiState? Follower, float Distance) FindFollowerInLane(int lanePointId, float maxDistance = 100f)
+    {
+        if (lanePointId < 0) return (null, -1);
+        
+        var ops = _spline.Operations;
+        if (!ops.IsSameDirection(CurrentSplinePointId, lanePointId))
+            return (null, -1);
+        
+        var points = _spline.Points;
+        float distanceTravelled = 0;
+        int pointId = lanePointId;
+        
+        while (distanceTravelled < maxDistance)
+        {
+            ref readonly var point = ref points[pointId];
+            if (point.PreviousId < 0) break;
+            
+            distanceTravelled += point.Length;
+            pointId = point.PreviousId;
+            
+            var slowest = _spline.SlowestAiStates[pointId];
+            if (slowest != null && slowest.Initialized)
+            {
+                return (slowest, distanceTravelled);
+            }
+        }
+        
+        return (null, -1);
+    }
+    
+    /// <summary>
+    /// IDM acceleration calculation
+    /// </summary>
+    private static float CalculateIdmAcceleration(float mySpeed, float desiredSpeed, float gap, float leaderSpeed)
+    {
+        const float maxAccel = 2.5f;
+        const float comfortDecel = 4.0f;
+        const float minGap = 2.0f;
+        const float timeHeadway = 1.2f;
+        const float delta = 4.0f;
+        
+        float approachingRate = mySpeed - leaderSpeed;
+        float sqrtAB = MathF.Sqrt(maxAccel * comfortDecel);
+        float sStar = minGap + mySpeed * timeHeadway + (mySpeed * approachingRate) / (2 * sqrtAB);
+        sStar = MathF.Max(minGap, sStar);
+        
+        float freeRoadTerm = desiredSpeed > 0.1f ? MathF.Pow(mySpeed / desiredSpeed, delta) : 0f;
+        float interactionTerm = gap > 0.1f ? MathF.Pow(sStar / gap, 2) : 1.0f;
+        
+        return maxAccel * (1f - freeRoadTerm - interactionTerm);
+    }
+    
+    /// <summary>
+    /// IDM free road acceleration
+    /// </summary>
+    private static float CalculateIdmFreeRoad(float mySpeed, float desiredSpeed)
+    {
+        const float maxAccel = 2.5f;
+        const float delta = 4.0f;
+        float freeRoadTerm = desiredSpeed > 0.1f ? MathF.Pow(mySpeed / desiredSpeed, delta) : 0f;
+        return maxAccel * (1f - freeRoadTerm);
     }
 }

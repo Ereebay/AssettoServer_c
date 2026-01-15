@@ -117,6 +117,9 @@ public partial class ACExtraConfiguration : ObservableObject
     
     public AiParams AiParams { get; init; } = new();
     
+    [YamlMember(Description = "Lane change behavior configuration (MOBIL algorithm)")]
+    public LaneChangeParams LaneChangeParams { get; init; } = new();
+    
     [YamlIgnore] internal bool ContainsObsoletePluginConfiguration { get; private set; }
 
     public void ToFile(string path)
@@ -225,6 +228,7 @@ public partial class ACExtraConfiguration : ObservableObject
                     RadiusMeters = 50
                 }
             ]
-        }
+        },
+        LaneChangeParams = new LaneChangeParams()
     };
 }
